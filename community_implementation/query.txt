@@ -1,0 +1,12 @@
+MATCH (e:Entity {name:'windsurf', label:'ORG'}) RETURN e;
+
+MATCH p = (e:Entity {name:'windsurf', label:'ORG'})-[:MENTIONS]->(t)
+OPTIONAL MATCH (t)-[:PART_OF]->(d:Document)
+RETURN e, t, d;
+
+MATCH (e:Entity {name:'windsurf', label:'ORG'})-[:MENTIONS]->(t)
+RETURN
+  labels(t)[0]        AS targetLabel,
+  CASE WHEN t:Document THEN t.title ELSE substring(t.text,0,80) END AS snippet,
+  t.expiration        AS ttlStatus;
+  
