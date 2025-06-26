@@ -123,6 +123,41 @@ def connect_long():
     return GraphDatabase.driver(LONG_NEO4J_URI, auth=(LONG_NEO4J_USER, LONG_NEO4J_PASSWORD))
 
 
+###############################################################################
+# Index helpers
+###############################################################################
+
+
+def create_indexes(session) -> None:
+    """Create performance-critical indexes in separate auto-commit txs."""
+    session.run(
+        """
+        CREATE RANGE INDEX ent_name_label IF NOT EXISTS
+        FOR (e:Entity) ON (e.name, e.label)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX ent_uuid_idx IF NOT EXISTS
+        FOR (e:Entity) ON (e.ent_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX para_uuid_idx IF NOT EXISTS
+        FOR (p:Paragraph) ON (p.para_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX doc_uuid_idx IF NOT EXISTS
+        FOR (d:Document) ON (d.doc_uuid)
+        """
+    )
+    # wait *outside* the index-creation txs
+    session.run("CALL db.awaitIndexes()")
+
+
 ##############################################################################
 # Promotion queries
 ##############################################################################

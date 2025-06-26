@@ -46,7 +46,42 @@ _raw_labels = {
 ALLOWED_LABELS = set(_raw_labels) if _raw_labels else None     # None == accept all
 
 ###############################################################################
-# Cypher helpers
+# Index helpers
+###############################################################################
+
+
+def create_indexes(session) -> None:
+    """Create performance-critical indexes in separate auto-commit txs."""
+    session.run(
+        """
+        CREATE RANGE INDEX ent_name_label IF NOT EXISTS
+        FOR (e:Entity) ON (e.name, e.label)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX ent_uuid_idx IF NOT EXISTS
+        FOR (e:Entity) ON (e.ent_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX para_uuid_idx IF NOT EXISTS
+        FOR (p:Paragraph) ON (p.para_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX doc_uuid_idx IF NOT EXISTS
+        FOR (d:Document) ON (d.doc_uuid)
+        """
+    )
+    # wait *outside* the index-creation txs
+    session.run("CALL db.awaitIndexes()")
+
+
+###############################################################################
+# Cypher write helpers
 ###############################################################################
 
 
@@ -54,13 +89,13 @@ def merge_entity(tx, ent_uuid: str, name: str, label: str) -> None:
     name = name.lower().strip()
     tx.run(
         """
-        MERGE (e:Entity {name:$name})
+        MERGE (e:Entity {name: $name})
         ON CREATE SET
             e.ent_uuid   = $ent_uuid,
             e.label      = $label,
             e.expiration = 0
         """,
-        name=name,
+        name=name.lower().strip(),
         ent_uuid=ent_uuid,
         label=label,
     )
@@ -69,7 +104,7 @@ def merge_entity(tx, ent_uuid: str, name: str, label: str) -> None:
 def create_document(tx, doc_uuid: str, title: str, content: str, category: str) -> None:
     tx.run(
         """
-        MERGE (d:Document {doc_uuid:$doc_uuid})
+        MERGE (d:Document {doc_uuid: $doc_uuid})
         ON CREATE SET
             d.title      = $title,
             d.content    = $content,
@@ -86,7 +121,7 @@ def create_document(tx, doc_uuid: str, title: str, content: str, category: str) 
 def create_paragraph(tx, para_uuid: str, text: str, idx: int, doc_uuid: str) -> None:
     tx.run(
         """
-        MERGE (p:Paragraph {para_uuid:$para_uuid})
+        MERGE (p:Paragraph {para_uuid: $para_uuid})
         ON CREATE SET
             p.text       = $text,
             p.index      = $idx,
@@ -101,8 +136,8 @@ def create_paragraph(tx, para_uuid: str, text: str, idx: int, doc_uuid: str) -> 
 
     tx.run(
         """
-        MATCH (p:Paragraph {para_uuid:$para_uuid}),
-              (d:Document {doc_uuid:$doc_uuid})
+        MATCH (p:Paragraph {para_uuid: $para_uuid}),
+              (d:Document  {doc_uuid: $doc_uuid})
         MERGE (p)-[r:PART_OF]->(d)
         ON CREATE SET r.expiration = 0
         """,
@@ -112,23 +147,22 @@ def create_paragraph(tx, para_uuid: str, text: str, idx: int, doc_uuid: str) -> 
 
 
 def link_mentions(tx, ent_uuid: str, doc_uuid: str, para_uuid: str) -> None:
-    # Paragraph-level mention
+    # paragraph-level
     tx.run(
         """
-        MATCH (e:Entity {ent_uuid:$ent_uuid}),
-              (p:Paragraph {para_uuid:$para_uuid})
+        MATCH (e:Entity {ent_uuid: $ent_uuid}),
+              (p:Paragraph {para_uuid: $para_uuid})
         MERGE (e)-[m:MENTIONS]->(p)
         ON CREATE SET m.expiration = 0
         """,
         ent_uuid=ent_uuid,
         para_uuid=para_uuid,
     )
-
-    # Document-level mention
+    # document-level
     tx.run(
         """
-        MATCH (e:Entity {ent_uuid:$ent_uuid}),
-              (d:Document {doc_uuid:$doc_uuid})
+        MATCH (e:Entity {ent_uuid: $ent_uuid}),
+              (d:Document {doc_uuid: $doc_uuid})
         MERGE (e)-[m:MENTIONS]->(d)
         ON CREATE SET m.expiration = 0
         """,
@@ -147,7 +181,7 @@ def ingest_file(nlp, session, category: str, path: Path) -> None:
     paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
     doc_uuid = str(uuid.uuid4())
 
-    print(f"\u27A4  {title}  [{category}]")   # nice arrow prefix
+    print(f"\u27A4  {title}  [{category}]")
 
     session.execute_write(create_document, doc_uuid, title, body, category)
 
@@ -172,7 +206,12 @@ def main() -> None:
         # Clean slate
         print("Clearing old data from Neo4j …")
         session.run("MATCH (n) DETACH DELETE n")
-        print("Database cleared.\n")
+        print("Database cleared.")
+
+        # Indexes
+        print("Creating/validating indexes …")
+        create_indexes(session)
+        print("Indexes ONLINE.\n")
 
         # Walk dataset
         for category in sorted(os.listdir(DATASET_PATH)):
