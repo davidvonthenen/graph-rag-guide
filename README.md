@@ -50,7 +50,7 @@ Adopting graph-based RAG addresses several key limitations of vector-based imple
 | **Community README**                          | Hands‑on commands & scripts [link](./community_implementation/README.md)                          |
 | **Enterprise Implementation Guide**           | Deep dive on Kafka CDC, FlexCache, SnapMirror [link](./Enterprise_Implementation.md)              |
 | **Enterprise README**                         | Production deployment notes [link](./enterprise_implementation/README.md)                         |
-| **Benchmark Discussion**                      | Discussion on benchmarks for Community Implementation [link](./enterprise_implementation/OSS_Community_Benchmarks.md)                         |
+| **Benchmark Discussion**                      | Discussion on benchmarks for Community Implementation [link](./OSS_Community_Benchmarks.md)                         |
 
 ## Quick Start
 
