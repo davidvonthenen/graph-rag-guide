@@ -1,20 +1,32 @@
+```python
 #!/usr/bin/env python3
 """
-cache_benchmark.py ― high-resolution latency benchmark for dual-memory
-Graph-based RAG
+cache_benchmark.py ― high-resolution latency benchmark for a **dual-memory,
+graph-based RAG agent**.
 
-Scenarios per iteration
------------------------
-1. LT         – direct query against the long-term Neo4j store
-2. ST-cold    – cache flushed, promotion LT → ST
-3. ST-warm    – second question answered *only* from ST
+The benchmark compares three retrieval paths per iteration:
 
-Each scenario reports
-    • total    (ms, three decimals)
-    • retrieval (Cypher + context assembly, ms)
-    • generation (LLM, ms – optional)
+1. **LT (Long-Term only)**  
+   Query goes straight to the long-term graph store. This is the “no cache”
+   baseline.
 
-Use --no-llm to exclude the expensive generation step.
+2. **ST-cold (Short-Term cold)**  
+   Cache is first *flushed*, then the query runs. The helper in
+   `cache_cypher_query.ask()` detects new entities, promotes their
+   sub-graphs into the short-term store, and finally serves the answer.
+
+3. **ST-warm (Short-Term warm)**  
+   Runs immediately after *ST-cold* without another flush. Data is already in
+   the cache, so retrieval should hit only the short-term store.
+
+For each scenario the script records:
+
+    • **total** latency – end-to-end wall-clock time  
+    • **retrieval** latency – graph query + context assembly  
+    • **generation** latency – LLM inference (optional)
+
+Pass `--no-llm` to isolate storage performance by skipping the generation
+step.
 
 Example
 -------
@@ -29,7 +41,7 @@ import statistics
 import time
 from typing import List, Tuple
 
-import cache_cypher_query as ccq
+import cache_cypher_query as ccq  # houses query helpers + promotions
 
 ###############################################################################
 # Utility helpers – nanosecond-precision timers
@@ -37,6 +49,7 @@ import cache_cypher_query as ccq
 
 
 def _now_ns() -> int:
+    """Return a monotonic timestamp in *nanoseconds*."""
     return time.perf_counter_ns()
 
 
@@ -46,17 +59,28 @@ def _ns_to_ms(ns: int) -> float:
 
 
 def _avg(lst):
+    """Average a list of nanosecond durations and convert to milliseconds."""
     return _ns_to_ms(statistics.mean(lst)) if lst else 0.0
 
 
 def flush_short_term(driver) -> None:
-    """Remove every node & relationship from the short-term Neo4j instance."""
+    """
+    Hard-reset the short-term graph store.
+
+    This guarantees that an upcoming ST-cold run really starts with an empty
+    cache.
+    """
     with driver.session() as sess:
         sess.run("MATCH (n) DETACH DELETE n")
 
 
 def _build_context_block(paras: List[dict]) -> str:
-    """Format paragraph snippets exactly as in ccq.ask() for fairness."""
+    """
+    Re-format paragraph snippets *exactly* the way `ccq.ask()` does.
+
+    Doing this here ensures generation latency is measured on identical
+    prompts for LT and ST paths – a fair comparison.
+    """
     ctx = ""
     for p in paras:
         snippet = p["text"][:350].replace("\n", " ")
@@ -68,12 +92,16 @@ def _build_context_block(paras: List[dict]) -> str:
 
 
 ###############################################################################
-# Timing wrappers
+# Timing wrappers – one per benchmark scenario
 ###############################################################################
 
 
 def _time_generation(llm, question: str, context: str, use_llm: bool) -> int:
-    """Return generation latency in *nanoseconds* (0 if skipped)."""
+    """
+    Measure the LLM step in *nanoseconds*.
+
+    Returns 0 when `use_llm` is False so retrieval math stays correct.
+    """
     if not use_llm:
         return 0
     start = _now_ns()
@@ -88,11 +116,17 @@ def timed_long_term(
     nlp,
     use_llm: bool,
 ) -> Tuple[int, int, int]:
-    """Return (total_ns, retrieval_ns, generation_ns) for LT path."""
+    """
+    Measure a *long-term only* retrieval:
+
+    1. Entity extraction
+    2. Paragraph fetch from long-term store
+    3. (Optional) LLM generation
+    """
     t0 = _now_ns()
 
     ent_pairs = ccq.extract_entities(nlp, question)
-    if not ent_pairs:
+    if not ent_pairs:  # guard: nothing to query
         return 0, 0, 0
 
     r0 = _now_ns()
@@ -115,12 +149,14 @@ def timed_short_term_cold(
     use_llm: bool,
 ) -> Tuple[int, int, int]:
     """
-    Cold path: ccq.ask() handles promotion. We patch generate_answer for timing
-    or stubbing depending on use_llm.
+    Measure a *cold cache* short-term retrieval.
+
+    We monkey-patch `ccq.generate_answer` so we can grab its timing (or stub
+    it out entirely) without touching the library itself.
     """
     total_start = _now_ns()
-    real_gen = ccq.generate_answer
-    gen_start_ns = None
+    real_gen = ccq.generate_answer  # backup original
+    gen_start_ns = None  # populated only when LLM is enabled
 
     if use_llm:
 
@@ -140,10 +176,11 @@ def timed_short_term_cold(
     try:
         ccq.ask(llm, nlp, question, short_driver, long_driver)
     finally:
-        ccq.generate_answer = real_gen
+        ccq.generate_answer = real_gen  # always restore
 
     total_ns = _now_ns() - total_start
 
+    # Split total into retrieval vs. generation
     if use_llm and gen_start_ns:
         generation_ns = _now_ns() - gen_start_ns
         retrieval_ns = total_ns - generation_ns
@@ -160,7 +197,11 @@ def timed_short_term_warm(
     nlp,
     use_llm: bool,
 ) -> Tuple[int, int, int]:
-    """Warm path: ST only."""
+    """
+    Measure a *warm cache* short-term retrieval.
+
+    Assumes promotion has already happened in the preceding cold run.
+    """
     t0 = _now_ns()
 
     ent_pairs = ccq.extract_entities(nlp, question)
@@ -184,10 +225,17 @@ def timed_short_term_warm(
 
 
 def run_benchmark(q1: str, q2: str, runs: int, use_llm: bool) -> None:
+    """
+    Full benchmark loop.
+
+    * flush cache between iterations for repeatability  
+    * run LT, ST-cold, ST-warm back-to-back  
+    * accumulate per-scenario timings and print averages + speed-ups
+    """
     short_driver = ccq.connect_short()
     long_driver = ccq.connect_long()
 
-    # Ensure indexes
+    # Make sure required indexes exist (idempotent)
     with long_driver.session() as s:
         ccq.create_indexes(s)
     with short_driver.session() as s:
@@ -204,7 +252,7 @@ def run_benchmark(q1: str, q2: str, runs: int, use_llm: bool) -> None:
     for i in range(1, runs + 1):
         print(f"\n=== Iteration {i}/{runs} ===")
 
-        # Long-term baseline
+        # ── 1. Long-term baseline ────────────────────────────────────────────
         flush_short_term(short_driver)
         ccq._seen_entities.clear()
         t, r, g = timed_long_term(q1, long_driver, llm, nlp, use_llm)
@@ -212,7 +260,7 @@ def run_benchmark(q1: str, q2: str, runs: int, use_llm: bool) -> None:
         print(f"[LT]       total:{_ns_to_ms(t):9.3f} ms  "
               f"ret:{_ns_to_ms(r):9.3f} ms  gen:{_ns_to_ms(g):9.3f} ms")
 
-        # Cold ST
+        # ── 2. Short-term (cold) ─────────────────────────────────────────────
         flush_short_term(short_driver)
         ccq._seen_entities.clear()
         t, r, g = timed_short_term_cold(q1, short_driver, long_driver,
@@ -221,13 +269,13 @@ def run_benchmark(q1: str, q2: str, runs: int, use_llm: bool) -> None:
         print(f"[ST-cold]  total:{_ns_to_ms(t):9.3f} ms  "
               f"ret:{_ns_to_ms(r):9.3f} ms  gen:{_ns_to_ms(g):9.3f} ms")
 
-        # Warm ST
+        # ── 3. Short-term (warm) ─────────────────────────────────────────────
         t, r, g = timed_short_term_warm(q2, short_driver, llm, nlp, use_llm)
         warm_tot.append(t); warm_ret.append(r); warm_gen.append(g)
         print(f"[ST-warm]  total:{_ns_to_ms(t):9.3f} ms  "
               f"ret:{_ns_to_ms(r):9.3f} ms  gen:{_ns_to_ms(g):9.3f} ms")
 
-    # Averages
+    # ── Print summary ────────────────────────────────────────────────────────
     print("\n──────── Average over", runs, "runs ────────")
     print("               total (ms)   retrieval   generation")
     print("Long-term   : {:10.3f}   {:9.3f}   {:10.3f}"
@@ -250,6 +298,7 @@ def run_benchmark(q1: str, q2: str, runs: int, use_llm: bool) -> None:
 
 
 def _parse_args():
+    """Parse command-line options for the benchmark."""
     p = argparse.ArgumentParser()
     p.add_argument(
         "--question1",
@@ -279,3 +328,4 @@ def _parse_args():
 if __name__ == "__main__":
     args = _parse_args()
     run_benchmark(args.question1, args.question2, args.runs, use_llm=args.llm)
+```

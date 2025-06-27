@@ -33,12 +33,12 @@ Implementing Graph-based RAG in an enterprise environment delivers significant s
 
 By adopting this structured, transparent approach, enterprises can not only significantly improve the accuracy and reliability of their AI solutions but also ensure robust governance and compliance.
 
-This document serves as an enterprise-oriented reference guide, laying out detailed implementation strategies for Graph-based RAG architectures, designed to empower organizations to build faster, clearer, and fully governable AI solutions.
+This document serves as an enterprise-oriented reference guide, laying out detailed implementation strategy for Graph-based RAG architectures, designed to empower organizations to build faster, clearer, and fully governable AI solutions.
 
 # 2. Ingesting Your Data Into Long‑Term Memory
 
 > **Same core pipeline, enterprise‑grade surroundings.**
-> This section mirrors the open‑source process in [OSS_Community_Implementation.md](./OSS_Community_Implementation.md) but folds in enterprise priorities like audit trails, schema governance, and storage economics.
+> This section mirrors the open‑source process in [OSS_Community_Version.md](./OSS_Community_Version.md) but folds in enterprise priorities like audit trails, schema governance, and storage economics.
 
 ## Why We Start with Clean Knowledge
 
@@ -82,9 +82,9 @@ The community script already ensures idempotency. In an enterprise setting, wrap
 
 ### Implementation Considerations
 
-The reference implementation is a model for a recommendation. It's highly recommended and required to adapt your Ontology (ie, Graph structure, keywords, etc) based on your problem domain.
+The outlined code is a model for a recommendation. It's highly recommended and required to adapt your Ontology (ie, Graph structure, keywords, etc) based on your problem domain.
 
-The use of Named-Entity-Recognition, more specifically the use of `spaCy`, is used for demonstration purposes only and to move the discussion along. Ideally, how you anchor your keywords to the associations on source data will be determined by your problem domain. In other words, it is probably more advantageous to implementation a Named Entity Recognition model based on the keywords you want to identity and act upon. This could be an off-the-shelf implementation or this could be a model that you train based on the data in your dataset.
+The use of Named-Entity-Recognition, more specifically the use of `spaCy`, is used for demonstration purposes only and to move the discussion along. Ideally, how you anchor your keywords to the associations on source data will be determined by your problem domain. In other words, it is probably more advantageous to implement a Named Entity Recognition model based on the keywords you want to identity and act upon. This could be an off-the-shelf code or this could be a model that you train based on the data in your dataset.
 
 ## Additional Notes
 
@@ -137,7 +137,7 @@ RETURN e, p, d
 
 ### Kafka Connector: the Enterprise Upgrade Path
 
-The community implementation calls `promote_entity()` from Python. Enterprises need something sturdier—**Neo4j ↔ Kafka Connect in CDC mode**:
+The community version calls `promote_entity()` from Python. Enterprises need something sturdier—**Neo4j ↔ Kafka Connect in CDC mode**:
 
 1. **Neo4j Source Connector** watches the **long-term** database for nodes/relationships matching promotion criteria and streams them to Kafka topics.
 2. **Neo4j Sink Connector** consumes those topics and `MERGE`s the sub-graph into the **short-term** cache (and vice-versa for reinforcement learning).
@@ -243,9 +243,9 @@ SET r:Validated;
 
 Short‑term memory now acts as an always‑on incubator: good facts rise, bad facts fade, and governance stays on autopilot. Next, we’ll wrap the paper with a concise Conclusion and call to action.
 
-## 5. Implementation Guide**
+## 5. Implementation Guide
 
-For a reference implementation, please check out the following: [enterprise_implementation/README.md](./enterprise_implementation/README.md)
+For a reference, please check out the following: [enterprise_version/README.md](./enterprise_version/README.md)
 
 # 6. Conclusion
 
@@ -260,7 +260,7 @@ The enterprise extensions—Kafka CDC pipelines, NetApp FlexCache, SnapMirror, t
 
 ## Next Steps
 
-1. **Clone the repo.**  The reference implementation and docs live at `github.com/your‑org/graph‑rag‑guide`. Kick the tires locally with Docker Compose.
+1. **Clone the repo.**  The outlined code and docs live at `github.com/your‑org/graph‑rag‑guide`. Kick the tires locally with Docker Compose.
 2. **Swap in your graph engine.**  All queries use plain Cypher; if you prefer NebulaGraph or Amazon Neptune, change the driver string and go.
 3. **Feed it live data.**  Point the ingest pipeline at a news feed, Jira export, or API dump to see short‑term memory light up.
 4. **Tune the thresholds.**  Adjust `HIT_WEIGHT`, `PROMOTE_THRESHOLD`, and `TTL_MS` until promotions align with your domain's truthiness bar.

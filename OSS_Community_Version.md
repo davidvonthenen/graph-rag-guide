@@ -24,7 +24,7 @@ Promotion is metadata-only: remove an `expiration` timestamp and a short-term fa
 - **Risk reduction** - grounding answers in a strict knowledge graph slashes the odds of rogue outputs.
 - **Performance at scale** - FlexCache-powered short-term memory keeps hot data near compute while SnapMirror protects it.
 
-The sections that follow walk through ingesting data (`ingest.py`), caching queries (`cache_cypher_query.py`), and promoting knowledge (`short_to_long_transfer.py`). Together they form an open-source reference implementation any team can drop into a GitHub repo and run today.
+The sections that follow walk through ingesting data (`ingest.py`), caching queries (`cache_cypher_query.py`), and promoting knowledge (`short_to_long_transfer.py`). Together they form an open-source version any team can drop into a GitHub repo and run today.
 
 Welcome to graph-based RAG: faster, clearer, and finally governable.
 
@@ -78,9 +78,9 @@ Because the script is pure client code, migrating to another graph engine is as 
 
 ### Implementation Considerations
 
-The reference implementation is a model for a recommendation. It's highly recommended and required to adapt your Ontology (ie, Graph structure, keywords, etc) based on your problem domain.
+The outlined code is a model for a recommendation. It's highly recommended and required to adapt your Ontology (ie, Graph structure, keywords, etc) based on your problem domain.
 
-The use of Named-Entity-Recognition, more specifically the use of `spaCy`, is used for demonstration purposes only and to move the discussion along. Ideally, how you anchor your keywords to the associations on source data will be determined by your problem domain. In other words, it is probably more advantageous to implementation a Named Entity Recognition model based on the keywords you want to identity and act upon. This could be an off-the-shelf implementation or this could be a model that you train based on the data in your dataset.
+The use of Named-Entity-Recognition, more specifically the use of `spaCy`, is used for demonstration purposes only and to move the discussion along. Ideally, how you anchor your keywords to the associations on source data will be determined by your problem domain. In other words, it is probably more advantageous to implement a Named Entity Recognition model based on the keywords you want to identity and act upon. This could be an off-the-shelf code or this could be a model that you train based on the data in your dataset.
 
 ## 3. Promotion of Long-Term Memory into Short-Term Cache
 
@@ -203,9 +203,9 @@ SET d.promoted = true
 
 With reinforcement learning and MCP in play, your graph stays fresh, relevant, and governed—all without nightly retraining runs. Next, we'll wrap up with final thoughts and how you can contribute.
 
-## 5. Implementation Guide**
+## 5. Implementation Guide
 
-For a reference implementation, please check out the following: [community_implementation/README.md](./community_implementation/README.md)
+For reference, please check out the following: [community_version/README.md](./community_version/README.md)
 
 ## 6. Conclusion
 

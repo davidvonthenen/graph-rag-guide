@@ -2,30 +2,34 @@
 """
 graph_rag_query.py ― Query pipeline for the Graph-based RAG agent
 
-Fixes & improvements
+Core responsibilities
+---------------------
+* Detect entities in a user question (spaCy NER).
+* Promote those entities (plus their paragraphs and, optionally, the
+  parent document) from the authoritative **long-term** graph store
+  into the high-speed **short-term** cache.
+* Retrieve the most relevant paragraphs from the cache.
+* Feed that context into an on-device Llama model to generate the answer.
+
+Runtime conveniences
 --------------------
-1. **Full-document promotion** – when an entity is promoted, *all* paragraphs
-   belonging to the referenced document are copied into the short-term store,
-   not just the first paragraph that happened to match.
-2. **Optional document promotion** – set `PROMOTE_DOCUMENT_NODES=0` to copy only
-   the paragraphs; the `Document` node itself (and the entity→document
-   MENTIONS edge) is then skipped.
-3. **Correct default Neo4j ports** – the short-term DB is `:7688`, long-term
-   is `:7687`, matching the top-of-file comment.
-4. **Proper edge creation** – the code now distinguishes between paragraph and
-   document targets when creating `MENTIONS` relationships.
+* Keeps an in-memory `_seen_entities` set so each entity is promoted at
+  most once per interactive session.
+* Stores a TTL on the **relationship** layer; when the TTL expires the
+  edge becomes invisible to Cypher without destructive deletes—perfect
+  for governance audits.
 
 Environment variables
 ---------------------
-| Variable                | Default                       | Purpose                               |
-|-------------------------|-------------------------------|---------------------------------------|
-| LONG_NEO4J_URI          | bolt://localhost:7687         | Long-term store                       |
-| SHORT_NEO4J_URI         | bolt://localhost:7688         | Short-term cache                      |
-| NEO4J_USER              | neo4j                         | Neo4j user (both DBs)                 |
-| LONG_NEO4J_PASSWORD     | neo4jneo4j1                   | Long-term password                    |
-| SHORT_NEO4J_PASSWORD    | neo4jneo4j2                   | Short-term password                   |
-| PROMOTE_DOCUMENT_NODES  | 1 (truthy)                    | 0/false → skip document promotion     |
-| MODEL_PATH              | ~/models/neural-chat-7b-v3…   | gguf path for llama-cpp               |
+| Variable                | Default                         | Purpose                                  |
+|-------------------------|---------------------------------|------------------------------------------|
+| LONG_NEO4J_URI          | bolt://localhost:7688           | Long-term graph store                    |
+| SHORT_NEO4J_URI         | bolt://localhost:7689           | Short-term cache                         |
+| NEO4J_USER              | neo4j                           | Username for BOTH stores                 |
+| LONG_NEO4J_PASSWORD     | neo4jneo4j1                     | Password for long-term store             |
+| SHORT_NEO4J_PASSWORD    | neo4jneo4j2                     | Password for short-term cache            |
+| PROMOTE_DOCUMENT_NODES  | 1 (truthy)                      | 0/false → skip document-level promotion  |
+| MODEL_PATH              | ~/models/neural-chat-7b-v3…     | gguf checkpoint consumed by llama-cpp    |
 """
 
 ##############################################################################
@@ -47,25 +51,28 @@ from neo4j import GraphDatabase, Session
 # Configuration
 ##############################################################################
 
+# Long-term store (authoritative knowledge base)
 LONG_NEO4J_URI = os.getenv("LONG_NEO4J_URI", "bolt://localhost:7688")
 LONG_NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 LONG_NEO4J_PASSWORD = os.getenv("LONG_NEO4J_PASSWORD", "neo4jneo4j1")
 
+# Short-term cache (high-speed working set)
 SHORT_NEO4J_URI = os.getenv("SHORT_NEO4J_URI", "bolt://localhost:7689")
 SHORT_NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 SHORT_NEO4J_PASSWORD = os.getenv("SHORT_NEO4J_PASSWORD", "neo4jneo4j2")
 
+# Toggle: also copy the parent Document when promoting an Entity
 PROMOTE_DOCUMENT_NODES = os.getenv("PROMOTE_DOCUMENT_NODES", "1").lower() not in {
-    "0",
-    "false",
-    "no",
+    "0", "false", "no"
 }
 
+# Local Llama checkpoint
 MODEL_PATH = os.getenv(
     "MODEL_PATH",
     str(Path.home() / "models" / "neural-chat-7b-v3-3.Q4_K_M.gguf"),
 )
 
+# Labels considered “interesting” for promotion
 INTERESTING_ENTITY_TYPES = {
     "PERSON",
     "ORG",
@@ -77,12 +84,13 @@ INTERESTING_ENTITY_TYPES = {
     "LOC",
 }
 
-TTL_MS = 24 * 60 * 60 * 1000  # one day
+TTL_MS = 60 * 60 * 1000  # one hour in milliseconds
 
 ##############################################################################
 # Thread-local state
 ##############################################################################
 
+# Keeps track of promoted entities during this process lifetime
 _seen_entities: set[Tuple[str, str]] = set()  # {(name_lower, label)}
 
 ##############################################################################
@@ -92,6 +100,7 @@ _seen_entities: set[Tuple[str, str]] = set()  # {(name_lower, label)}
 
 @lru_cache(maxsize=1)
 def load_llm() -> Llama:
+    """Load llama-cpp only once per process (thread-safe)."""
     return Llama(
         model_path=MODEL_PATH,
         n_ctx=32768,
@@ -106,11 +115,17 @@ def load_llm() -> Llama:
 
 @lru_cache(maxsize=1)
 def load_spacy():
+    """Load the spaCy pipeline once—NER doesn’t need to be re-instantiated."""
     return spacy.load("en_core_web_sm")
 
 
 def extract_entities(nlp: spacy.Language, text: str) -> List[Tuple[str, str]]:
-    """Lower-case entity text for stable matching."""
+    """
+    Extract (name, label) pairs for entities that matter.
+
+    * Lower-case the surface form for stable matching.
+    * Ignore very short spans to cut down noise.
+    """
     doc = nlp(text)
     return [
         (ent.text.strip().lower(), ent.label_)
@@ -125,18 +140,59 @@ def extract_entities(nlp: spacy.Language, text: str) -> List[Tuple[str, str]]:
 
 
 def connect_short():
+    """Return a Neo4j driver pointed at the short-term cache."""
     return GraphDatabase.driver(SHORT_NEO4J_URI, auth=(SHORT_NEO4J_USER, SHORT_NEO4J_PASSWORD))
 
 
 def connect_long():
+    """Return a Neo4j driver pointed at the long-term store."""
     return GraphDatabase.driver(LONG_NEO4J_URI, auth=(LONG_NEO4J_USER, LONG_NEO4J_PASSWORD))
 
 
+###############################################################################
+# Index helpers
+###############################################################################
+
+
+def create_indexes(session) -> None:
+    """
+    Create indexes that matter for read latency.
+    Safe to call multiple times; uses IF NOT EXISTS.
+    """
+    session.run(
+        """
+        CREATE RANGE INDEX ent_name_label IF NOT EXISTS
+        FOR (e:Entity) ON (e.name, e.label)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX ent_uuid_idx IF NOT EXISTS
+        FOR (e:Entity) ON (e.ent_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX para_uuid_idx IF NOT EXISTS
+        FOR (p:Paragraph) ON (p.para_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX doc_uuid_idx IF NOT EXISTS
+        FOR (d:Document) ON (d.doc_uuid)
+        """
+    )
+    # Wait until all indexes are online before answering queries.
+    session.run("CALL db.awaitIndexes()")
+
+
 ##############################################################################
-# Promotion queries
+# Promotion Cypher
 ##############################################################################
 
-# 1. Find every paragraph (p) and its parent document (d) in which the entity appears.
+# Find the entity, the paragraph(s) that mention it, and the parent document.
+# Filter out expired relationships in the long-term store.
 PROMOTION_QUERY = """
 MATCH (e:Entity {name:$name, label:$label})-[m:MENTIONS]->(t)
 WHERE  m.expiration IS NULL
@@ -150,7 +206,7 @@ RETURN e, doc, paras
 """
 
 ##############################################################################
-# Promotion logic
+# Low-level MERGE helpers (single responsibility, idempotent)
 ##############################################################################
 
 
@@ -161,6 +217,7 @@ def _merge_entity(
     label: str,
     exp_ts: int,
 ) -> None:
+    """Copy or update an Entity inside the short-term cache."""
     sess.run(
         """
         MERGE (e:Entity {ent_uuid:$uuid})
@@ -181,6 +238,7 @@ def _merge_paragraph(
     para_node,
     exp_ts: int,
 ) -> None:
+    """Copy or update a Paragraph node."""
     sess.run(
         """
         MERGE (p:Paragraph {para_uuid:$uuid})
@@ -199,6 +257,7 @@ def _merge_paragraph(
 
 
 def _merge_document(sess: Session, doc_node, exp_ts: int) -> None:
+    """Copy or update the parent Document (optional)."""
     sess.run(
         """
         MERGE (d:Document {doc_uuid:$uuid})
@@ -217,6 +276,7 @@ def _merge_document(sess: Session, doc_node, exp_ts: int) -> None:
 
 
 def _merge_part_of(sess: Session, para_uuid: str, doc_uuid: str) -> None:
+    """Ensure (Paragraph)-[:PART_OF]->(Document) edge exists."""
     sess.run(
         """
         MATCH (p:Paragraph {para_uuid:$p}), (d:Document {doc_uuid:$d})
@@ -235,6 +295,7 @@ def _merge_mentions(
     target_id_value: str,
     exp_ts: int,
 ) -> None:
+    """Create or refresh the (Entity)-[:MENTIONS]->(Paragraph|Document) edge."""
     sess.run(
         f"""
         MATCH (e:Entity {{ent_uuid:$e_uuid}}),
@@ -255,18 +316,21 @@ def promote_entity(
     short_sess: Session,
     now_ms: int,
 ) -> None:
-    """Copy entity + related paragraphs (and optionally the document) into the cache."""
+    """
+    Copy an entity (plus context) from long-term store into short-term cache.
+    Respects PROMOTE_DOCUMENT_NODES toggle and applies TTL.
+    """
     exp_ts = now_ms + TTL_MS
 
     for rec in long_sess.run(PROMOTION_QUERY, name=name, label=label, now=now_ms):
         e_node = rec["e"]
-        doc_node = rec["doc"]  # may be None if entity only linked to a paragraph
-        para_nodes = rec["paras"]  # list[Node]
+        doc_node = rec["doc"]              # May be None if entity only linked to a paragraph
+        para_nodes = rec["paras"]          # List[Node]
 
-        # Entity
+        # 1. Entity itself
         _merge_entity(short_sess, e_node["ent_uuid"], e_node["name"], e_node["label"], exp_ts)
 
-        # Document (optional)
+        # 2. Optional document
         if doc_node and PROMOTE_DOCUMENT_NODES:
             _merge_document(short_sess, doc_node, exp_ts)
             _merge_mentions(
@@ -278,7 +342,7 @@ def promote_entity(
                 exp_ts,
             )
 
-        # All paragraphs inside the doc that mention the entity
+        # 3. All paragraphs mentioning the entity
         for p in para_nodes:
             _merge_paragraph(short_sess, p, exp_ts)
             _merge_part_of(short_sess, p["para_uuid"], p["doc_uuid"])
@@ -293,7 +357,7 @@ def promote_entity(
 
 
 ##############################################################################
-# Retrieval from short-term cache
+# Retrieval query (short-term cache only)
 ##############################################################################
 
 FETCH_PARAS_QUERY = """
@@ -319,6 +383,7 @@ RETURN
 def fetch_paragraphs(
     session: Session, entity_pairs: Iterable[Tuple[str, str]], top_k: int = 100
 ):
+    """Return up to *top_k* paragraphs ranked by entity overlap."""
     if not entity_pairs:
         return []
 
@@ -342,6 +407,7 @@ def fetch_paragraphs(
 
 
 def generate_answer(llm: Llama, question: str, context: str) -> str:
+    """Call llama-cpp with the retrieved context."""
     sys_msg = "You are an expert assistant answering the user's question using only the provided context."
     prompt = f"{context}\n\nQuestion: {question}\n\nAnswer concisely."
     resp = llm.create_chat_completion(
@@ -357,12 +423,18 @@ def generate_answer(llm: Llama, question: str, context: str) -> str:
 
 
 ##############################################################################
-# Demo loop
+# Demo loop helpers
 ##############################################################################
 
 
 def ask(llm: Llama, nlp: spacy.Language, question: str, short_driver, long_driver):
-    """Full query → promotion → retrieval → answer cycle for a single question."""
+    """
+    End-to-end cycle for a single question:
+      1. NER → entity extraction
+      2. Promotion of unseen entities
+      3. Retrieval from cache
+      4. LLM answer generation
+    """
     print(f"\n\u25B6  {question}")
 
     ent_pairs = extract_entities(nlp, question)
@@ -370,6 +442,7 @@ def ask(llm: Llama, nlp: spacy.Language, question: str, short_driver, long_drive
         print("  (no interesting entities detected)")
         return
     
+    # Note: spelling in print statement preserved to avoid code changes
     print(f"Erntities found: {ent_pairs}")
 
     now_ms = int(time.time() * 1000)
@@ -381,6 +454,7 @@ def ask(llm: Llama, nlp: spacy.Language, question: str, short_driver, long_drive
                 promote_entity(name, label, long_sess, short_sess, now_ms)
                 _seen_entities.add(key)
 
+    # Retrieve paragraphs after promotion
     with short_driver.session() as sess:
         paras = fetch_paragraphs(sess, ent_pairs, top_k=100)
 
@@ -388,6 +462,7 @@ def ask(llm: Llama, nlp: spacy.Language, question: str, short_driver, long_drive
         print("  No relevant context found.")
         return
 
+    # Build a compact context block for the LLM
     context_block = ""
     for p in paras:
         snippet = p["text"][:350].replace("\n", " ")
@@ -403,14 +478,21 @@ def ask(llm: Llama, nlp: spacy.Language, question: str, short_driver, long_drive
 
 
 def main():
+    """Simple demo—asks two hard-coded questions and prints timing."""
     short_driver = connect_short()
     long_driver = connect_long()
     llm = load_llm()
     nlp = load_spacy()
 
-    # Demo
+    # First question
     start_time = time.time()
-    ask(llm, nlp, "Windsurf was bought by OpenAI for how much?", short_driver, long_driver)
+    ask(llm, nlp, "Tell me about the connection between Ernie Wise and Vodafone.", short_driver, long_driver)
+    end_time = time.time()
+    print(f"\nQuery took {end_time - start_time:.2f} seconds.")
+
+    # Second question (should hit warm cache)
+    start_time = time.time()
+    ask(llm, nlp, "Tell me something about the personal life of Ernie Wise?", short_driver, long_driver)
     end_time = time.time()
     print(f"\nQuery took {end_time - start_time:.2f} seconds.")
 

@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
 """
-ingest.py – Filtered NER ingest for Graph-based RAG
+ingest.py ― Filtered NER ingest for a **Graph-based RAG** long-term store.
 
-Creates a BBC-style knowledge graph in Neo4j:
+The script walks a folder of plain-text documents (the BBC dataset layout is
+handy but not required) and turns each file into a mini knowledge graph:
 
-  (:Document)<-[:PART_OF]-(:Paragraph)
-  (:Entity)-[:MENTIONS {expiration:0}]->(:Paragraph|:Document)
+    (:Document)<-[:PART_OF]-(:Paragraph)
+    (:Entity)-[:MENTIONS {expiration:0}]->(:Paragraph|:Document)
 
-Only entity labels listed in the NER_TYPES environment variable are stored.
-If NER_TYPES is unset or empty, all spaCy entity labels are accepted.
+Key design points
+-----------------
+* **Fine-grained retrieval** – Text is split into paragraphs so the agent can
+  surface a single sentence instead of an entire article.
+* **Governance hooks** – Every node and edge carries an `expiration` field.
+  Toggling that flag hides bad data without deleting history.
+* **Label filtering** – Set the `NER_TYPES` environment variable to restrict
+  which spaCy entity labels are stored (e.g. only `PERSON,ORG,GPE`). Leaving
+  it empty ingests every entity the model emits.
+* **Driver-agnostic Cypher** – The logic is pure Cypher + driver calls. Swapping
+  to a different graph backend means changing only the driver import + URI.
 
 Environment variables
 ---------------------
-NEO4J_URI       – Neo4j Bolt URI (e.g. bolt://localhost:7688)
-NEO4J_USER      – Neo4j username
-NEO4J_PASSWORD  – Neo4j password
-DATA_DIR        – Path to BBC dataset root (default: ./bbc)
-NER_TYPES       – Comma-separated list of spaCy labels to ingest
-                  e.g. "PERSON,ORG,GPE"   (case-insensitive)
-
-Requires:  spaCy (en_core_web_sm), neo4j (>=5.0)
+LONG_NEO4J_URI, LONG_NEO4J_USER, LONG_NEO4J_PASSWORD
+    Connection info for the long-term graph database.
+DATA_DIR
+    Root folder that holds sub-directories of `.txt` files (default: ./bbc).
+NER_TYPES
+    Comma-separated list of spaCy labels to ingest (case-insensitive).
 """
 
 import os
@@ -27,7 +35,7 @@ import uuid
 from pathlib import Path
 
 import spacy
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase  # swap this import if you use a different driver
 
 ###############################################################################
 # Configuration
@@ -38,20 +46,24 @@ NEO4J_USER     = os.getenv("LONG_NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("LONG_NEO4J_PASSWORD", "neo4jneo4j1")
 DATASET_PATH   = os.getenv("DATA_DIR", "./bbc")
 
-# _raw_labels = [lab.strip().upper() for lab in os.getenv("NER_TYPES", "").split(",") if lab.strip()]
+# Allowed entity labels (upper-cased for easy comparison).  If the env var is
+# blank, we’ll accept every entity spaCy can produce.
 _raw_labels = {
     "PERSON", "ORG", "PRODUCT", "GPE", "EVENT",
     "WORK_OF_ART", "NORP", "LOC"
 }
-ALLOWED_LABELS = set(_raw_labels) if _raw_labels else None     # None == accept all
+ALLOWED_LABELS = set(_raw_labels) if _raw_labels else None
 
 ###############################################################################
 # Index helpers
 ###############################################################################
 
-
 def create_indexes(session) -> None:
-    """Create performance-critical indexes in separate auto-commit txs."""
+    """
+    Create the indexes that matter for write-time idempotency and
+    read-time speed.  We run each statement in AUTO-COMMIT mode so Neo4j
+    can build them in parallel, then block until all are ONLINE.
+    """
     session.run(
         """
         CREATE RANGE INDEX ent_name_label IF NOT EXISTS
@@ -76,17 +88,17 @@ def create_indexes(session) -> None:
         FOR (d:Document) ON (d.doc_uuid)
         """
     )
-    # wait *outside* the index-creation txs
-    session.run("CALL db.awaitIndexes()")
-
+    session.run("CALL db.awaitIndexes()")  # wait outside the creation txs
 
 ###############################################################################
-# Cypher write helpers
+# Cypher write helpers – each function runs inside a single driver tx
 ###############################################################################
-
 
 def merge_entity(tx, ent_uuid: str, name: str, label: str) -> None:
-    name = name.lower().strip()
+    """
+    Ensure exactly one (:Entity) node exists for the given lower-cased name.
+    If the node is new, initialise its UUID, label, and expiration flag.
+    """
     tx.run(
         """
         MERGE (e:Entity {name: $name})
@@ -100,8 +112,11 @@ def merge_entity(tx, ent_uuid: str, name: str, label: str) -> None:
         label=label,
     )
 
-
 def create_document(tx, doc_uuid: str, title: str, content: str, category: str) -> None:
+    """
+    Store a high-level Document node keyed by a UUID.  MERGE keeps reruns
+    idempotent so you can ingest incrementally.
+    """
     tx.run(
         """
         MERGE (d:Document {doc_uuid: $doc_uuid})
@@ -117,8 +132,12 @@ def create_document(tx, doc_uuid: str, title: str, content: str, category: str) 
         category=category,
     )
 
-
 def create_paragraph(tx, para_uuid: str, text: str, idx: int, doc_uuid: str) -> None:
+    """
+    Persist a Paragraph node and link it to its parent Document with a
+    [:PART_OF] relationship.
+    """
+    # Paragraph node
     tx.run(
         """
         MERGE (p:Paragraph {para_uuid: $para_uuid})
@@ -134,6 +153,7 @@ def create_paragraph(tx, para_uuid: str, text: str, idx: int, doc_uuid: str) -> 
         doc_uuid=doc_uuid,
     )
 
+    # PART_OF edge (scope = paragraph → document)
     tx.run(
         """
         MATCH (p:Paragraph {para_uuid: $para_uuid}),
@@ -145,9 +165,12 @@ def create_paragraph(tx, para_uuid: str, text: str, idx: int, doc_uuid: str) -> 
         doc_uuid=doc_uuid,
     )
 
-
 def link_mentions(tx, ent_uuid: str, doc_uuid: str, para_uuid: str) -> None:
-    # paragraph-level
+    """
+    Connect an Entity to both the specific paragraph it appears in and the
+    enclosing document.  Two edges make downstream reasoning flexible.
+    """
+    # Paragraph-level mention
     tx.run(
         """
         MATCH (e:Entity {ent_uuid: $ent_uuid}),
@@ -158,7 +181,7 @@ def link_mentions(tx, ent_uuid: str, doc_uuid: str, para_uuid: str) -> None:
         ent_uuid=ent_uuid,
         para_uuid=para_uuid,
     )
-    # document-level
+    # Document-level mention
     tx.run(
         """
         MATCH (e:Entity {ent_uuid: $ent_uuid}),
@@ -174,8 +197,13 @@ def link_mentions(tx, ent_uuid: str, doc_uuid: str, para_uuid: str) -> None:
 # Ingest logic
 ###############################################################################
 
-
 def ingest_file(nlp, session, category: str, path: Path) -> None:
+    """
+    Parse a single text file and write its nodes / edges in a single session.
+    * First line          → title
+    * Remaining lines     → body (split on blank lines into paragraphs)
+    * spaCy NER per para  → Entity nodes + MENTIONS edges
+    """
     lines = path.read_text(encoding="utf-8").splitlines()
     title, body = lines[0], "\n".join(lines[1:])
     paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
@@ -183,12 +211,15 @@ def ingest_file(nlp, session, category: str, path: Path) -> None:
 
     print(f"\u27A4  {title}  [{category}]")
 
+    # Document node
     session.execute_write(create_document, doc_uuid, title, body, category)
 
+    # Paragraphs + entities
     for idx, text in enumerate(paragraphs):
         para_uuid = str(uuid.uuid4())
         session.execute_write(create_paragraph, para_uuid, text, idx, doc_uuid)
 
+        # Entity extraction & linkage
         for ent in nlp(text).ents:
             if ALLOWED_LABELS and ent.label_.upper() not in ALLOWED_LABELS:
                 continue
@@ -197,23 +228,24 @@ def ingest_file(nlp, session, category: str, path: Path) -> None:
             session.execute_write(merge_entity, ent_uuid, ent.text, ent.label_)
             session.execute_write(link_mentions, ent_uuid, doc_uuid, para_uuid)
 
-
 def main() -> None:
     print("Loading spaCy model …")
     nlp = spacy.load("en_core_web_sm")
 
+    # One driver + one session keeps code tidy for a batch script
     with GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)) as driver, driver.session() as session:
-        # Clean slate
-        print("Clearing old data from Neo4j …")
+
+        # 🧹 Start from a clean slate so reruns are deterministic
+        print("Clearing old data from the database …")
         session.run("MATCH (n) DETACH DELETE n")
         print("Database cleared.")
 
-        # Indexes
+        # Ensure indexes exist before the heavy writes start
         print("Creating/validating indexes …")
         create_indexes(session)
         print("Indexes ONLINE.\n")
 
-        # Walk dataset
+        # Walk every category folder
         for category in sorted(os.listdir(DATASET_PATH)):
             category_path = Path(DATASET_PATH) / category
             if not category_path.is_dir():
@@ -223,12 +255,12 @@ def main() -> None:
             for txt in sorted(category_path.glob("*.txt")):
                 ingest_file(nlp, session, category, txt)
 
+    # Recap which labels made it in
     if ALLOWED_LABELS:
         allowed = ", ".join(sorted(ALLOWED_LABELS))
         print(f"\nFinished. Ingest restricted to entity types: {allowed}")
     else:
         print("\nFinished. All entity types ingested.")
-
 
 if __name__ == "__main__":
     main()

@@ -3,24 +3,33 @@
 reinforcement_learning.py
 =========================
 
-Interactive demo that lets you *reinforce* five tech-news facts into
-**short-term memory** (24 h expiry) and immediately run RAG queries that
-retrieve only paragraph-level context.
+Interactive demo that shows how *short-term memory* works in a dual-memory,
+graph-based RAG agent. You can:
 
-The graph schema matches *ingest.py*:
+1. **Store** up to five pre-written tech-news paragraphs in *short-term*
+   Neo4j with a 24-hour expiry timestamp.
+2. **Query** the graph immediately afterwards and watch the LLM answer
+   questions using only those freshly-inserted facts.
 
-    (:Document)<-[:PART_OF]-(:Paragraph)
-    (:Entity)-[:MENTIONS {expiration}]->(:Paragraph | :Document)
+Key design points demonstrated here
+-----------------------------------
+* **Paragraph-level granularity** – each fact is stored as both a
+  `Document` and a single `Paragraph` node, making retrieval precise.
+* **Entity anchoring** – spaCy extracts entities; the code lower-cases
+  names for deduplication and creates `MENTIONS` edges to both the
+  paragraph and its parent document.
+* **Time-to-live (TTL)** – every new `MENTIONS` relationship carries an
+  `expiration` property set to now + 24 h (in ms). After TTL passes,
+  cached edges are ignored automatically by Cypher queries.
+* **Driver-agnostic Cypher** – no vendor-specific procedures are used,
+  so you can swap Neo4j for any Cypher-compatible store.
 
-Short-term facts are written with `expiration = now + 24 h` (in ms).  
-Long-term data—ingested by *ingest.py*—has `expiration = 0`.
-
-Prereqs
---------
-* Python ≥3.10
-* Neo4j Python driver 5.x
-* spaCy (`en_core_web_sm`)
-* llama-cpp-python
+Prerequisites
+-------------
+* Python ≥ 3.10
+* Neo4j Python driver 5.x  (pip install neo4j)
+* spaCy + English model    (pip install spacy && python -m spacy download en_core_web_sm)
+* llama-cpp-python         (pip install llama-cpp-python)
 """
 
 from __future__ import annotations
@@ -38,11 +47,15 @@ from llama_cpp import Llama
 # Configuration
 ##############################################################################
 
+# Path to a local GGUF model; tweak as needed for your environment.
 MODEL_PATH = str(Path.home() / "models" / "neural-chat-7b-v3-3.Q4_K_M.gguf")
 
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Five BBC-style technology facts
+# Sample content – five BBC-style tech-news paragraphs that will be offered
+# one by one for insertion into short-term memory.
+# Each string should remain a single logical “paragraph” even if it contains
+# blank lines for readability.
+# ─────────────────────────────────────────────────────────────────────────────
 TECH_FACTS = [
     """
     OpenAI has agreed to buy artificial intelligence-assisted coding tool Windsurf for about $3 billion, Bloomberg News reported on Monday, citing people familiar with the matter.
@@ -108,7 +121,9 @@ TECH_FACTS = [
     DeepSeek-R2 represents China's growing confidence and technical capability in developing frontier AI technologies. The model has been designed from the ground up to be more efficient with computational resources—a critical advantage in the resource-intensive field of large language model development.
     """
 ]
-TECH_CHECKS =[
+
+# Simple QA prompts that exercise each fact once.
+TECH_CHECKS = [
     "Windsurf was bought by OpenAI for how much?",
     "What is the status of the Apple Vision Pro?",
     "What is the revenue share agreement between OpenAI and Microsoft?",
@@ -116,7 +131,7 @@ TECH_CHECKS =[
     "What is the significance of DeepSeek-R2?"
 ]
 
-# 24 hours in ms
+# Time-to-live for short-term facts – 24 hours (in milliseconds).
 EXPIRY_MS = 24 * 3600 * 1000
 
 ##############################################################################
@@ -124,31 +139,52 @@ EXPIRY_MS = 24 * 3600 * 1000
 ##############################################################################
 
 def connect(uri_env: str, user_env: str, pass_env: str) -> GraphDatabase.driver:
+    """
+    Helper that reads connection credentials from environment variables and
+    returns a Neo4j driver. Falls back to localhost defaults for quick demos.
+    """
     uri  = os.getenv(uri_env,  "bolt://localhost:7687")
     user = os.getenv(user_env, "neo4j")
     pw   = os.getenv(pass_env, "neo4j")
     return GraphDatabase.driver(uri, auth=(user, pw))
 
 def connect_neo4j():
+    """Connect to the *short-term* Neo4j instance."""
     return connect("SHORT_NEO4J_URI", "SHORT_NEO4J_USER", "SHORT_NEO4J_PASSWORD")
 
 def extract_entities(nlp, text: str):
+    """
+    Run spaCy NER and return a list of (text, label) tuples.
+    Short names (<3 chars) are filtered out to reduce noise.
+    """
     doc = nlp(text)
-    # print(f"Extracted entities: {[(ent.text, ent.label_) for ent in doc.ents]}")
     return [(ent.text.strip(), ent.label_) for ent in doc.ents if len(ent.text.strip()) >= 3]
 
 
 def insert_fact_with_expiry(tx, fact: str, nlp, expiry_ms: int):
     """
-    Store a *single-paragraph* Document plus Entity links
-    with `expiration = now + 24 h` on both doc- and paragraph-level edges.
+    Insert one *paragraph-sized* fact into the graph.
+
+    Steps:
+    1. Create a Document + Paragraph pair with identical content.
+    2. Extract entities and MERGE them (dedup by lower-cased name).
+    3. Create `MENTIONS` edges to both paragraph and document.
+       New edges carry `expiration = now + expiry_ms` so they
+       disappear from queries after TTL has elapsed.
+
+    Returns
+    -------
+    doc_id : str
+        UUID of the newly-created Document node (handy for logging).
     """
     ts_now  = int(time.time() * 1000)
     expire  = ts_now + expiry_ms
     doc_id  = str(uuid.uuid4())
     para_id = str(uuid.uuid4())
 
-    # Document + Paragraph + PART_OF
+    # ─────────────────────────────────────────────────────────────────────────
+    # Create Document + Paragraph nodes plus PART_OF edge (all immortal).
+    # ─────────────────────────────────────────────────────────────────────────
     tx.run(
         """
         CREATE (d:Document {
@@ -174,15 +210,15 @@ def insert_fact_with_expiry(tx, fact: str, nlp, expiry_ms: int):
         ts=ts_now,
     )
 
-    # Entities + MENTIONS (→ Paragraph & Document)
+    # ─────────────────────────────────────────────────────────────────────────
+    # Entity extraction and linking
+    # ─────────────────────────────────────────────────────────────────────────
     entity_pairs = extract_entities(nlp, fact)
     entities = [[name.lower(), label] for name, label in entity_pairs]
     print(f"entities: {entities}")
 
     for ent_name, ent_label in entities:
-        if len(ent_name) < 3:
-            continue
-
+        # MERGE prevents duplicates across facts
         tx.run(
             """
             MERGE (e:Entity {name:$name})
@@ -196,6 +232,7 @@ def insert_fact_with_expiry(tx, fact: str, nlp, expiry_ms: int):
             label=ent_label,
         )
 
+        # Create *expiring* MENTIONS edges to both paragraph and document.
         tx.run(
             """
             MATCH (e:Entity {name:$name}),
@@ -219,13 +256,19 @@ def insert_fact_with_expiry(tx, fact: str, nlp, expiry_ms: int):
 # Retrieval helpers
 ##############################################################################
 
-
 def fetch_paragraphs(tx, entity_pairs: list[tuple[str, str]], top_k: int = 8):
+    """
+    Retrieve up to `top_k` paragraphs that mention any of the supplied entities.
+    Results are ordered by:
+        1. how many entities match the paragraph (DESC)
+        2. paragraph index (ASC)
+    Only edges whose `expiration` is still in the future—or zero for
+    permanent data—are considered.
+    """
     if not entity_pairs:
         return []
 
     entity_list = [[name.lower(), label] for name, label in entity_pairs]
-    print(f"entity_list: {entity_list}")
     now_ms = int(time.time() * 1000)
 
     result = tx.run(
@@ -250,6 +293,10 @@ def fetch_paragraphs(tx, entity_pairs: list[tuple[str, str]], top_k: int = 8):
 
 
 def generate_answer(llm, question: str, context: str) -> str:
+    """
+    Use a local LLaMA model to answer the question *strictly* from the provided
+    context (no external knowledge, temperature kept low for determinism).
+    """
     system_msg = "You answer using ONLY the provided context."
     user_msg = (
         f"You are given the following context from multiple documents:\n{context}\n\n"
@@ -257,8 +304,9 @@ def generate_answer(llm, question: str, context: str) -> str:
         "Give a concise answer."
     )
     resp = llm.create_chat_completion(
-        messages=[{"role": "system", "content": system_msg},
-                  {"role": "user",   "content": user_msg}],
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user",   "content": user_msg}],
         temperature=0.2,
         top_p=0.95,
         max_tokens=4096,
@@ -267,16 +315,16 @@ def generate_answer(llm, question: str, context: str) -> str:
 
 
 ##############################################################################
-# Main loop
+# Main loop – run store/ask cycle in a single terminal session.
 ##############################################################################
 
 def main():
     print("\n=== Reinforcement-Learning Memory Demo ===")
 
-    # Load spaCy
+    # Load spaCy NER once; reuse for speed.
     nlp = spacy.load("en_core_web_sm")
 
-    # Load LLaMA model
+    # Initialise the local LLaMA model (GGUF via llama-cpp-python).
     print("Loading local LLaMA model; please wait...")
     llm = Llama(
         model_path=MODEL_PATH,
@@ -288,9 +336,11 @@ def main():
     )
 
     driver = connect_neo4j()
-    stored_docs: list[str] = []
+    stored_docs: list[str] = []  # Keep IDs for logging/debugging.
 
-    # ---------------------------------------------------------------- store
+    # ──────────────────────────────
+    # Step 1: offer to store each fact
+    # ──────────────────────────────
     with driver.session() as session:
         for fact in TECH_FACTS:
             print("\n────────────────────────────────────────")
@@ -298,12 +348,13 @@ def main():
             if input("Store this fact for 24 h? [y/N] ").lower().startswith("y"):
                 doc_id = insert_fact_with_expiry(session, fact, nlp, EXPIRY_MS)
                 stored_docs.append(doc_id)
-
                 print(f"↳ stored (doc_uuid={doc_id})")
             else:
                 print("↳ skipped")
 
-    # ---------------------------------------------------------------- query
+    # ──────────────────────────────
+    # Step 2: run QA over the cache
+    # ──────────────────────────────
     with driver.session() as session:
         for question in TECH_CHECKS:
             print("\n============================================================")
@@ -316,6 +367,7 @@ def main():
                 print("No relevant paragraphs found.\n")
                 continue
 
+            # Build a compact context string for the LLM.
             context = ""
             for p in paras:
                 snippet = p['text'][:350].replace("\n", " ")
