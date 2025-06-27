@@ -15,8 +15,8 @@ Workflow
 
 2. For every candidate, ask the human operator:
 
-      • **yes**    → “Promote”: set `expiration = 0`, meaning *permanent*  
-      • **expire** → “Force expire”: set `expiration` to two days ago  
+      • **yes**    → "Promote": set `expiration = 0`, meaning *permanent*
+      • **expire** → "Force expire": set `expiration` to two days ago
       • **no**     → Leave the edge as-is
 
 3. After the review, run five tech-news questions (`TECH_CHECK`) through a
@@ -57,7 +57,7 @@ TECH_CHECK = [
     "What is the significance of DeepSeek-R2?",
 ]
 
-# Utility: “two days” expressed in milliseconds.
+# Utility: "two days" expressed in milliseconds.
 TWO_DAYS_MS = 2 * 24 * 3600 * 1000
 
 ##############################################################################
@@ -70,9 +70,9 @@ def connect(uri_env: str, user_env: str, pass_env: str) -> GraphDatabase.driver:
 
     Environment variables
     ---------------------
-    uri_env   – connection string, e.g. bolt://localhost:7687
-    user_env  – database user
-    pass_env  – database password
+    uri_env   - connection string, e.g. bolt://localhost:7687
+    user_env  - database user
+    pass_env  - database password
     """
     uri  = os.getenv(uri_env,  "bolt://localhost:7687")
     user = os.getenv(user_env, "neo4j")
@@ -95,7 +95,7 @@ def list_unexpired_docs(tx):
     Return all *Document* nodes that still have at least one unexpired
     paragraph-level mention.
 
-    A mention is considered “unexpired” when:
+    A mention is considered "unexpired" when:
         • m.expiration IS NOT NULL
         • m.expiration > current-time-in-ms
     """
@@ -173,8 +173,8 @@ def fetch_paragraphs(tx, entity_pairs: list[tuple[str, str]], top_k: int = 8):
     ANY of the (name, label) pairs and are unexpired.
 
     Ordering:
-        1. Number of entity matches (desc) – surfaces highly relevant paras
-        2. Paragraph index          (asc)  – keeps original document order
+        1. Number of entity matches (desc) - surfaces highly relevant paras
+        2. Paragraph index          (asc)  - keeps original document order
     """
     if not entity_pairs:
         return []
@@ -205,8 +205,8 @@ def load_llm(path=MODEL_PATH):
     """
     Load a local GGUF LLaMA model via llama-cpp-python.
 
-    * n_ctx=32768  – keeps us safe for long prompts
-    * temperature  – low for deterministic answers
+    * n_ctx=32768  - keeps us safe for long prompts
+    * temperature  - low for deterministic answers
     """
     print("Loading local LLaMA model…")
     return Llama(
@@ -302,7 +302,7 @@ def rag_test(driver, llm, nlp):
                 )
 
             answer = generate_answer(llm, q, context)
-            print("\nAnswer:")
+            print("\n=== Answer ===")
             print(answer)
 
 def main():

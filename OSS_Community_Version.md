@@ -1,6 +1,8 @@
-## Executive Summary
+# Graph RAG: Open Source Community Version
 
 Retrieval-Augmented Generation (RAG) is the go-to pattern for grounding large-language-model answers in real data. Most teams reach for a vector database first—then wonder why the model still hallucinates and can't explain itself. A graph-based RAG agent (long-term memory on durable storage and short-term memory on high-speed cache), solves those pain points in one shot.
+
+![Community Graph RAG](./images/community_version.png)
 
 **Why graphs beat pure vectors**
 

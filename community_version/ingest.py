@@ -10,14 +10,14 @@ handy but not required) and turns each file into a mini knowledge graph:
 
 Key design points
 -----------------
-* **Fine-grained retrieval** – Text is split into paragraphs so the agent can
+- **Fine-grained retrieval** - Text is split into paragraphs so the agent can
   surface a single sentence instead of an entire article.
-* **Governance hooks** – Every node and edge carries an `expiration` field.
+- **Governance hooks** - Every node and edge carries an `expiration` field.
   Toggling that flag hides bad data without deleting history.
-* **Label filtering** – Set the `NER_TYPES` environment variable to restrict
+- **Label filtering** - Set the `NER_TYPES` environment variable to restrict
   which spaCy entity labels are stored (e.g. only `PERSON,ORG,GPE`). Leaving
   it empty ingests every entity the model emits.
-* **Driver-agnostic Cypher** – The logic is pure Cypher + driver calls. Swapping
+- **Driver-agnostic Cypher** - The logic is pure Cypher + driver calls. Swapping
   to a different graph backend means changing only the driver import + URI.
 
 Environment variables
@@ -91,7 +91,7 @@ def create_indexes(session) -> None:
     session.run("CALL db.awaitIndexes()")  # wait outside the creation txs
 
 ###############################################################################
-# Cypher write helpers – each function runs inside a single driver tx
+# Cypher write helpers - each function runs inside a single driver tx
 ###############################################################################
 
 def merge_entity(tx, ent_uuid: str, name: str, label: str) -> None:

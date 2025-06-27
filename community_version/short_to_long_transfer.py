@@ -5,14 +5,14 @@ graph cache** into the **authoritative long-term store**.
 
 Two Neo4j instances are assumed:
 
-* **Short-term cache** – volatile, high-speed (e.g. NVMe/RAM disk) listening on port 7689  
-* **Long-term store**  – durable, compliance-grade storage on port 7688  
+- **Short-term cache** - volatile, high-speed (e.g. NVMe/RAM disk) listening on port 7689
+- **Long-term store**  - durable, compliance-grade storage on port 7688
 
 Promotion criteria:
 
-* By default every `Document` node that is still **unpromoted** (`promoted=false`) is
+- By default every `Document` node that is still **unpromoted** (`promoted=false`) is
   eligible.  
-* Set the environment variable **`REQUIRE_VALIDATED=1`** to only copy documents that
+- Set the environment variable **`REQUIRE_VALIDATED=1`** to only copy documents that
   have already been manually or programmatically flagged `validated:true`.
 
 All connectivity details (URI, user, password) can be overridden with environment
@@ -56,7 +56,7 @@ def _driver(uri_env: str, user_env: str, pw_env: str, default_uri: str) -> Drive
 
 
 # --------------------------------------------------------------------------- #
-# DB drivers – short-term (cache) and long-term (knowledge base)
+# DB drivers - short-term (cache) and long-term (knowledge base)
 # --------------------------------------------------------------------------- #
 # In typical local demos we simply run two Neo4j instances on adjacent ports.
 # Swap the URIs or credentials via environment variables to point at real clusters.
@@ -73,7 +73,7 @@ LONG: Driver = _driver(
 REQUIRE_VALIDATED = os.getenv("REQUIRE_VALIDATED", "0").lower() in ("1", "true", "yes")
 
 ##############################################################################
-# Cypher snippets – parameterised fragments reused by the merge helpers
+# Cypher snippets - parameterised fragments reused by the merge helpers
 ##############################################################################
 
 _Q_MERGE_DOCUMENT = """
@@ -94,7 +94,7 @@ SET   e += $props
 """
 
 ##############################################################################
-# Merge helpers – keep all write statements in one place for readability
+# Merge helpers - keep all write statements in one place for readability
 ##############################################################################
 
 
@@ -138,7 +138,7 @@ def _merge_mentions(
 
 
 ##############################################################################
-# Promotion logic – copy one sub-graph in three passes (docs, paras, entities)
+# Promotion logic - copy one sub-graph in three passes (docs, paras, entities)
 ##############################################################################
 
 
@@ -239,7 +239,7 @@ def main() -> None:
                 ltx.commit()
             promoted += 1
 
-    print(f"✅  Promotion complete – {promoted} document(s) copied.")
+    print(f"✅  Promotion complete - {promoted} document(s) copied.")
 
 
 if __name__ == "__main__":

@@ -36,14 +36,14 @@ from neo4j import GraphDatabase               # graph driver (code-specific)
 from llama_cpp import Llama                   # pip install llama-cpp-python
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Neo4j connection details – set via env-vars so CI / prod can override them
+# Neo4j connection details - set via env-vars so CI / prod can override them
 # ─────────────────────────────────────────────────────────────────────────────
 NEO4J_URI      = os.getenv("LONG_NEO4J_URI",      "bolt://localhost:7688")
 NEO4J_USER     = os.getenv("LONG_NEO4J_USER",     "neo4j")
 NEO4J_PASSWORD = os.getenv("LONG_NEO4J_PASSWORD", "neo4jneo4j1")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Llama-cpp configuration – model path & runtime knobs
+# Llama-cpp configuration - model path & runtime knobs
 # ─────────────────────────────────────────────────────────────────────────────
 MODEL_PATH = str(Path.home() / "models" / "neural-chat-7b-v3-3.Q4_K_M.gguf")
 
@@ -83,7 +83,7 @@ def extract_entities_spacy(text: str, nlp):
     Run NER over the input text.
 
     We keep entities whose surface form has ≥ 3 characters to skip
-    “at”, “UK”, etc.  The function returns a list of `(name, label)` pairs.
+    "at", "UK", etc.  The function returns a list of `(name, label)` pairs.
     """
     doc = nlp(text)
     return [
@@ -172,7 +172,7 @@ def generate_answer(llm: Llama, question: str, context: str) -> str:
 # Main demo
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Example prompts – replace with argparse / UI in real usage
+    # Example prompts - replace with argparse / UI in real usage
     user_query = "Tell me about the connection between Ernie Wise and Vodafone."
     print(f"User Query: {user_query}")
 
