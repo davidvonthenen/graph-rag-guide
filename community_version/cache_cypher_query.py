@@ -4,18 +4,18 @@ graph_rag_query.py ― Query pipeline for the Graph-based RAG agent
 
 Core responsibilities
 ---------------------
-* Detect entities in a user question (spaCy NER).
-* Promote those entities (plus their paragraphs and, optionally, the
+- Detect entities in a user question (spaCy NER).
+- Promote those entities (plus their paragraphs and, optionally, the
   parent document) from the authoritative **long-term** graph store
   into the high-speed **short-term** cache.
-* Retrieve the most relevant paragraphs from the cache.
-* Feed that context into an on-device Llama model to generate the answer.
+- Retrieve the most relevant paragraphs from the cache.
+- Feed that context into an on-device Llama model to generate the answer.
 
 Runtime conveniences
 --------------------
-* Keeps an in-memory `_seen_entities` set so each entity is promoted at
+- Keeps an in-memory `_seen_entities` set so each entity is promoted at
   most once per interactive session.
-* Stores a TTL on the **relationship** layer; when the TTL expires the
+- Stores a TTL on the **relationship** layer; when the TTL expires the
   edge becomes invisible to Cypher without destructive deletes—perfect
   for governance audits.
 
@@ -72,7 +72,7 @@ MODEL_PATH = os.getenv(
     str(Path.home() / "models" / "neural-chat-7b-v3-3.Q4_K_M.gguf"),
 )
 
-# Labels considered “interesting” for promotion
+# Labels considered "interesting" for promotion
 INTERESTING_ENTITY_TYPES = {
     "PERSON",
     "ORG",
@@ -94,7 +94,7 @@ TTL_MS = 60 * 60 * 1000  # one hour in milliseconds
 _seen_entities: set[Tuple[str, str]] = set()  # {(name_lower, label)}
 
 ##############################################################################
-# Helpers – LLM & spaCy
+# Helpers - LLM & spaCy
 ##############################################################################
 
 

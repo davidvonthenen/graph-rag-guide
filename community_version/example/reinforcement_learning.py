@@ -13,23 +13,23 @@ graph-based RAG agent. You can:
 
 Key design points demonstrated here
 -----------------------------------
-* **Paragraph-level granularity** – each fact is stored as both a
+- **Paragraph-level granularity** - each fact is stored as both a
   `Document` and a single `Paragraph` node, making retrieval precise.
-* **Entity anchoring** – spaCy extracts entities; the code lower-cases
+- **Entity anchoring** - spaCy extracts entities; the code lower-cases
   names for deduplication and creates `MENTIONS` edges to both the
   paragraph and its parent document.
-* **Time-to-live (TTL)** – every new `MENTIONS` relationship carries an
+- **Time-to-live (TTL)** - every new `MENTIONS` relationship carries an
   `expiration` property set to now + 24 h (in ms). After TTL passes,
   cached edges are ignored automatically by Cypher queries.
-* **Driver-agnostic Cypher** – no vendor-specific procedures are used,
+- **Driver-agnostic Cypher** - no vendor-specific procedures are used,
   so you can swap Neo4j for any Cypher-compatible store.
 
 Prerequisites
 -------------
-* Python ≥ 3.10
-* Neo4j Python driver 5.x  (pip install neo4j)
-* spaCy + English model    (pip install spacy && python -m spacy download en_core_web_sm)
-* llama-cpp-python         (pip install llama-cpp-python)
+- Python ≥ 3.10
+- Neo4j Python driver 5.x  (pip install neo4j)
+- spaCy + English model    (pip install spacy && python -m spacy download en_core_web_sm)
+- llama-cpp-python         (pip install llama-cpp-python)
 """
 
 from __future__ import annotations
@@ -51,9 +51,9 @@ from llama_cpp import Llama
 MODEL_PATH = str(Path.home() / "models" / "neural-chat-7b-v3-3.Q4_K_M.gguf")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sample content – five BBC-style tech-news paragraphs that will be offered
+# Sample content - five BBC-style tech-news paragraphs that will be offered
 # one by one for insertion into short-term memory.
-# Each string should remain a single logical “paragraph” even if it contains
+# Each string should remain a single logical "paragraph" even if it contains
 # blank lines for readability.
 # ─────────────────────────────────────────────────────────────────────────────
 TECH_FACTS = [
@@ -131,7 +131,7 @@ TECH_CHECKS = [
     "What is the significance of DeepSeek-R2?"
 ]
 
-# Time-to-live for short-term facts – 24 hours (in milliseconds).
+# Time-to-live for short-term facts - 24 hours (in milliseconds).
 EXPIRY_MS = 24 * 3600 * 1000
 
 ##############################################################################
@@ -315,7 +315,7 @@ def generate_answer(llm, question: str, context: str) -> str:
 
 
 ##############################################################################
-# Main loop – run store/ask cycle in a single terminal session.
+# Main loop - run store/ask cycle in a single terminal session.
 ##############################################################################
 
 def main():
@@ -377,7 +377,7 @@ def main():
                 )
 
             answer = generate_answer(llm, question, context)
-            print("\nAnswer:")
+            print("\n=== Answer ===")
             print(answer)
 
     print("\n=== Demo Complete ===")

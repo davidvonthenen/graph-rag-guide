@@ -5,6 +5,8 @@ Welcome to the **Graph RAG Guide** ... a dual‑memory, knowledge‑graph approa
 - **Community / Open‑Source Version** ... a self‑contained demo you can run on a laptop.
 - **Enterprise Version** ... a production‑grade variant that layers in Kafka CDC pipelines, NetApp FlexCache, SnapMirror, and other operational muscle.
 
+![Graph RAG with Reinforcement Learning](./images/reinforcement_learning.png)
+
 By storing knowledge as **nodes & relationships** instead of opaque vectors, the agent gains traceability, reduces hallucinations, and meets demanding audit requirements.
 
 ### Project Purpose
@@ -20,6 +22,15 @@ Key objectives include:
 - Demonstrate how reinforcement‑learning signals can promote proven facts from cache to durable storage.
 - Show upgrade paths ... from a minimal Python/RAM‑disk demo to an enterprise pipeline with exactly‑once Kafka connectors and enterprise storage.
 
+## Benefits Over Vector-Based RAG
+
+Adopting graph-based RAG addresses several key limitations of traditional RAG Agents:
+
+- **Multi-Hop Reasoning**: Graph databases naturally support complex queries involving multiple related entities, enhancing retrieval accuracy.
+- **Bias Mitigation**: Explicitly structured relationships simplify detection and correction of biased data.
+- **Improved Compliance and Governance**: Detailed provenance and transparent data relationships facilitate auditability and regulatory compliance.
+- **Risk Management**: Significantly reduced hallucinations due to verified and structured context.
+
 ### Community vs Enterprise ... What Changes?
 
 | Capability                 | Community Edition                               | Enterprise Edition                                                                |
@@ -30,16 +41,7 @@ Key objectives include:
 | **Governance hooks**       | Basic provenance tags                           | Promotion events logged, schema‑versioned, and instantly traceable                |
 | **Performance**            | Millisecond‑level on warm RAM cache             | Sub‑50 ms at global scale; hot blocks auto‑evicted by FlexCache                   |
 
-> **TL;DR ...** start with the community guide for laptops; switch to the enterprise path when you need 24×7, multi‑site, or compliance.
-
-## Benefits Over Vector-Based RAG
-
-Adopting graph-based RAG addresses several key limitations of traditional RAG Agents:
-
-- **Multi-Hop Reasoning**: Graph databases naturally support complex queries involving multiple related entities, enhancing retrieval accuracy.
-- **Bias Mitigation**: Explicitly structured relationships simplify detection and correction of biased data.
-- **Improved Compliance and Governance**: Detailed provenance and transparent data relationships facilitate auditability and regulatory compliance.
-- **Risk Management**: Significantly reduced hallucinations due to verified and structured context.
+> **TL;DR:** start with the community guide for laptops; switch to the enterprise path when you need 24×7, multi‑site, or compliance.
 
 ## Where To Dive Deeper
 

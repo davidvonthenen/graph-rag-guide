@@ -1,6 +1,8 @@
-# Executive Summary
+# Graph RAG: Enterprise Version
 
 Retrieval-Augmented Generation (RAG) has emerged as a crucial pattern for grounding large language model (LLM) responses in real-world data, significantly improving accuracy and reliability. However, conventional RAG implementations predominantly rely on vector databases, which inherently grapple with issues such as frequent hallucinations, opaque reasoning paths, and challenges in achieving regulatory compliance.
+
+![Enterprise Graph RAG](./images/enterprise_version.png)
 
 In response, Graph-based RAG architectures offer substantial improvements by explicitly modeling information through structured relationships within graph databases. This approach transforms data storage from ambiguous embeddings into clearly defined nodes and edges, inherently addressing critical issues like hallucinations and lack of explainability found in traditional vector-based systems.
 

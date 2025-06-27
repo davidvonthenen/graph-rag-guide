@@ -1,4 +1,3 @@
-```python
 #!/usr/bin/env python3
 """
 cache_benchmark.py ― high-resolution latency benchmark for a **dual-memory,
@@ -7,7 +6,7 @@ graph-based RAG agent**.
 The benchmark compares three retrieval paths per iteration:
 
 1. **LT (Long-Term only)**  
-   Query goes straight to the long-term graph store. This is the “no cache”
+   Query goes straight to the long-term graph store. This is the "no cache"
    baseline.
 
 2. **ST-cold (Short-Term cold)**  
@@ -21,9 +20,9 @@ The benchmark compares three retrieval paths per iteration:
 
 For each scenario the script records:
 
-    • **total** latency – end-to-end wall-clock time  
-    • **retrieval** latency – graph query + context assembly  
-    • **generation** latency – LLM inference (optional)
+    • **total** latency - end-to-end wall-clock time
+    • **retrieval** latency - graph query + context assembly
+    • **generation** latency - LLM inference (optional)
 
 Pass `--no-llm` to isolate storage performance by skipping the generation
 step.
@@ -44,7 +43,7 @@ from typing import List, Tuple
 import cache_cypher_query as ccq  # houses query helpers + promotions
 
 ###############################################################################
-# Utility helpers – nanosecond-precision timers
+# Utility helpers - nanosecond-precision timers
 ###############################################################################
 
 
@@ -79,7 +78,7 @@ def _build_context_block(paras: List[dict]) -> str:
     Re-format paragraph snippets *exactly* the way `ccq.ask()` does.
 
     Doing this here ensures generation latency is measured on identical
-    prompts for LT and ST paths – a fair comparison.
+    prompts for LT and ST paths - a fair comparison.
     """
     ctx = ""
     for p in paras:
@@ -92,7 +91,7 @@ def _build_context_block(paras: List[dict]) -> str:
 
 
 ###############################################################################
-# Timing wrappers – one per benchmark scenario
+# Timing wrappers - one per benchmark scenario
 ###############################################################################
 
 
@@ -328,4 +327,3 @@ def _parse_args():
 if __name__ == "__main__":
     args = _parse_args()
     run_benchmark(args.question1, args.question2, args.runs, use_llm=args.llm)
-```

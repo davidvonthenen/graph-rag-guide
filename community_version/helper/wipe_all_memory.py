@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-wipe_all_memory.py – Wipe all data from Neo4j databases
+wipe_all_memory.py - Wipe all data from Neo4j databases
 """
 
 import os

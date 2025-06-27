@@ -33,9 +33,9 @@ Environment variables (defaults match the hard-coded fallbacks below)
 Notes  
 -----
 
-* Two separate Neo4j instances are shown for clarity, **but the Cypher works
+- Two separate Neo4j instances are shown for clarity, **but the Cypher works
   against any graph database** that supports the same semantics.
-* Short-term memory is given a shorter TTL (24 h by default) via an `expiration`
+- Short-term memory is given a shorter TTL (24 h by default) via an `expiration`
   property on every cached relationship.
 
 """
@@ -56,7 +56,7 @@ from llama_cpp import Llama
 from neo4j import GraphDatabase, Session
 
 ##############################################################################
-# Configuration – change via ENV or edit defaults for local testing
+# Configuration - change via ENV or edit defaults for local testing
 ##############################################################################
 
 # Long-term memory (cheaper storage, complete history)
@@ -82,7 +82,7 @@ MODEL_PATH = os.getenv(
     str(Path.home() / "models" / "neural-chat-7b-v3-3.Q4_K_M.gguf"),
 )
 
-# Only these entity labels are considered “interesting” for promotion
+# Only these entity labels are considered "interesting" for promotion
 INTERESTING_ENTITY_TYPES = {
     "PERSON",
     "ORG",
@@ -98,13 +98,13 @@ INTERESTING_ENTITY_TYPES = {
 TTL_MS = 24 * 60 * 60 * 1000
 
 ##############################################################################
-# Thread-local state – prevents re-promoting the same entity in one session
+# Thread-local state - prevents re-promoting the same entity in one session
 ##############################################################################
 
 _seen_entities: set[Tuple[str, str]] = set()  # {(name_lower, label)}
 
 ##############################################################################
-# Helpers – LLM & spaCy
+# Helpers - LLM & spaCy
 ##############################################################################
 
 
@@ -146,7 +146,7 @@ def extract_entities(nlp: spacy.Language, text: str) -> List[Tuple[str, str]]:
 
 
 ##############################################################################
-# Neo4j connection helpers – keep driver boilerplate out of the main logic
+# Neo4j connection helpers - keep driver boilerplate out of the main logic
 ##############################################################################
 
 
@@ -165,7 +165,7 @@ def connect_long():
 
 
 ##############################################################################
-# Promotion queries – Cypher that copies an entity-centric sub-graph
+# Promotion queries - Cypher that copies an entity-centric sub-graph
 ##############################################################################
 
 # 1) Find the entity
@@ -185,7 +185,7 @@ RETURN e, doc, paras
 """
 
 ##############################################################################
-# Low-level MERGE helpers – keep the Cypher in one place for clarity
+# Low-level MERGE helpers - keep the Cypher in one place for clarity
 ##############################################################################
 
 
@@ -339,7 +339,7 @@ def promote_entity(
 
 
 ##############################################################################
-# Retrieval – rank cached paragraphs by “how many entities match”
+# Retrieval - rank cached paragraphs by "how many entities match"
 ##############################################################################
 
 FETCH_PARAS_QUERY = """
@@ -384,7 +384,7 @@ def fetch_paragraphs(
 
 
 ##############################################################################
-# LLM answer generation – vanilla llama-cpp chat completion
+# LLM answer generation - vanilla llama-cpp chat completion
 ##############################################################################
 
 
@@ -408,7 +408,7 @@ def generate_answer(llm: Llama, question: str, context: str) -> str:
 
 
 ##############################################################################
-# Demo loop – minimal conversational wrapper for manual testing
+# Demo loop - minimal conversational wrapper for manual testing
 ##############################################################################
 
 
@@ -462,13 +462,13 @@ def ask(llm: Llama, nlp: spacy.Language, question: str, short_driver, long_drive
 
 
 def main():
-    """Entry point – initialise drivers, models, and run a single-shot demo."""
+    """Entry point - initialise drivers, models, and run a single-shot demo."""
     short_driver = connect_short()
     long_driver = connect_long()
     llm = load_llm()
     nlp = load_spacy()
 
-    # Demo query – replace with your own questions
+    # Demo query - replace with your own questions
     start_time = time.time()
     ask(
         llm,
