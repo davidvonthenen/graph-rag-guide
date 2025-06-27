@@ -2,12 +2,12 @@
 
 Welcome to the **Graph RAG Guide** ... a dual‑memory, knowledge‑graph approach to Retrieval‑Augmented Generation (RAG) that delivers answers that are faster, clearer, and governed by design. The repo houses two fully‑working paths:
 
-- **Community / Open‑Source implementation** ... a self‑contained demo you can run on a laptop.
-- **Enterprise implementation** ... a production‑grade variant that layers in Kafka CDC pipelines, NetApp FlexCache, SnapMirror, and other operational muscle.
+- **Community / Open‑Source Version** ... a self‑contained demo you can run on a laptop.
+- **Enterprise Version** ... a production‑grade variant that layers in Kafka CDC pipelines, NetApp FlexCache, SnapMirror, and other operational muscle.
 
 By storing knowledge as **nodes & relationships** instead of opaque vectors, the agent gains traceability, reduces hallucinations, and meets demanding audit requirements.
 
-## Project Purpose
+### Project Purpose
 
 This project was developed to address significant limitations inherent in traditional vector-based RAG solutions. Specifically:
 
@@ -20,7 +20,7 @@ Key objectives include:
 - Demonstrate how reinforcement‑learning signals can promote proven facts from cache to durable storage.
 - Show upgrade paths ... from a minimal Python/RAM‑disk demo to an enterprise pipeline with exactly‑once Kafka connectors and enterprise storage.
 
-## Community vs Enterprise ... What Changes?
+### Community vs Enterprise ... What Changes?
 
 | Capability                 | Community Edition                               | Enterprise Edition                                                                |
 | -------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -32,25 +32,25 @@ Key objectives include:
 
 > **TL;DR ...** start with the community guide for laptops; switch to the enterprise path when you need 24×7, multi‑site, or compliance.
 
-.# Benefits Over Vector-Based RAG
+## Benefits Over Vector-Based RAG
 
-Adopting graph-based RAG addresses several key limitations of vector-based implementations:
+Adopting graph-based RAG addresses several key limitations of traditional RAG Agents:
 
 - **Multi-Hop Reasoning**: Graph databases naturally support complex queries involving multiple related entities, enhancing retrieval accuracy.
 - **Bias Mitigation**: Explicitly structured relationships simplify detection and correction of biased data.
 - **Improved Compliance and Governance**: Detailed provenance and transparent data relationships facilitate auditability and regulatory compliance.
 - **Risk Management**: Significantly reduced hallucinations due to verified and structured context.
 
-.# Where To Dive Deeper
+## Where To Dive Deeper
 
 | Document                                      | What it covers                                                                                    |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **Knowledge Graphs for Better AI Governance** | Vision & business case for graph‑based RAG [link](./Knowledge_Graphs_for_Better_AI_Governance.md) |
-| **Community Implementation Guide**            | Step‑by‑step setup for the open‑source flavour [link](./OSS_Community_Implementation.md)          |
-| **Community README**                          | Hands‑on commands & scripts [link](./community_implementation/README.md)                          |
-| **Enterprise Implementation Guide**           | Deep dive on Kafka CDC, FlexCache, SnapMirror [link](./Enterprise_Implementation.md)              |
-| **Enterprise README**                         | Production deployment notes [link](./enterprise_implementation/README.md)                         |
-| **Benchmark Discussion**                      | Discussion on benchmarks for Community Implementation [link](./OSS_Community_Benchmarks.md)                         |
+| **Community Version Guide**            | Step‑by‑step setup for the open‑source flavour [link](./OSS_Community_Version.md)          |
+| **Community README**                          | Hands‑on commands & scripts [link](./community_version/README.md)                          |
+| **Enterprise Version Guide**           | Deep dive on Kafka CDC, FlexCache, SnapMirror [link](./Enterprise_Version.md)              |
+| **Enterprise README**                         | Production deployment notes [link](./enterprise_version/README.md)                         |
+| **Benchmark Discussion**                      | Discussion on benchmarks for Community Version [link](./OSS_Community_Benchmarks.md)                         |
 
 ## Quick Start
 
@@ -59,9 +59,9 @@ Adopting graph-based RAG addresses several key limitations of vector-based imple
 $ git clone https://github.com/<your‑org>/graph‑rag‑guide.git
 
 # 2. Pick your path
-$ cd graph‑rag‑guide/community_implementation   # laptop demo
+$ cd graph‑rag‑guide/community_version   # laptop demo
 # or
-$ cd graph‑rag‑guide/enterprise_implementation  # prod‑ready setup
+$ cd graph‑rag‑guide/enterprise_version  # prod‑ready setup
 
 # 3. Follow the README in that folder
 ```
