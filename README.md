@@ -1,9 +1,9 @@
 # Graph‑Based RAG: Better Option for AI Governance
 
-Welcome to the **Graph RAG Guide** ... a dual‑memory, knowledge‑graph approach to Retrieval‑Augmented Generation (RAG) that delivers answers that are faster, clearer, and governed by design. The repo houses two fully‑working paths:
+Welcome to the **Graph RAG Guide**... a dual‑memory, knowledge‑graph approach to Retrieval‑Augmented Generation (RAG) that delivers answers that are faster, clearer, and governed by design. The repo houses two fully‑working paths:
 
-- **Community / Open‑Source Version** ... a self‑contained demo you can run on a laptop.
-- **Enterprise Version** ... a production‑grade variant that layers in Kafka CDC pipelines, NetApp FlexCache, SnapMirror, and other operational muscle.
+- **Community / Open‑Source Version** - a self‑contained demo you can run on a laptop.
+- **Enterprise Version** - a production‑grade variant that layers in Kafka CDC pipelines, NetApp FlexCache, SnapMirror, and other operational muscle.
 
 ![Graph RAG with Reinforcement Learning](./images/reinforcement_learning.png)
 
@@ -20,7 +20,7 @@ Key objectives include:
 
 - Provide a reference architecture for **graph‑based RAG** with explicit short‑term (cache) and long‑term (authoritative) memory.
 - Demonstrate how reinforcement‑learning signals can promote proven facts from cache to durable storage.
-- Show upgrade paths ... from a minimal Python/RAM‑disk demo to an enterprise pipeline with exactly‑once Kafka connectors and enterprise storage.
+- Show upgrade paths... from a minimal Python/RAM‑disk demo to an enterprise pipeline with exactly‑once Kafka connectors and enterprise storage.
 
 ## Benefits Over Vector-Based RAG
 
@@ -31,7 +31,7 @@ Adopting graph-based RAG addresses several key limitations of traditional RAG Ag
 - **Improved Compliance and Governance**: Detailed provenance and transparent data relationships facilitate auditability and regulatory compliance.
 - **Risk Management**: Significantly reduced hallucinations due to verified and structured context.
 
-### Community vs Enterprise ... What Changes?
+### Community vs Enterprise - What Changes?
 
 | Capability                 | Community Edition                               | Enterprise Edition                                                                |
 | -------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
