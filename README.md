@@ -1,6 +1,6 @@
 # Graph‑Based RAG: Better Option for AI Governance
 
-Welcome to the **Graph RAG Guide**... a dual‑memory, knowledge‑graph approach to Retrieval‑Augmented Generation (RAG) that delivers answers that are faster, clearer, and governed by design. The repo houses two fully‑working paths:
+Welcome to the **Graph RAG Guide**... a dual‑memory, knowledge‑graph approach to Retrieval‑Augmented Generation (RAG) that delivers answers that are faster, clearer, and governed by design. The repo houses two fully working paths:
 
 - **Community / Open‑Source Version** - a self‑contained demo you can run on a laptop.
 - **Enterprise Version** - a production‑grade variant that layers in Kafka CDC pipelines, NetApp FlexCache, SnapMirror, and other operational muscle.
