@@ -1,6 +1,6 @@
 # Graph RAG: Open Source Community Version
 
-Retrieval-Augmented Generation (RAG) is the go-to pattern for grounding large-language-model answers in real data. Most teams reach for a vector database first—then wonder why the model still hallucinates and can't explain itself. A graph-based RAG agent (long-term memory on durable storage and short-term memory on high-speed cache), solves those pain points in one shot.
+Retrieval-Augmented Generation (RAG) is the go-to approach for grounding large language model answers in real-world data. Most teams reach for a vector database first, then wonder why the model still hallucinates and can't explain itself. A graph-based RAG agent (long-term memory on durable storage and short-term memory on high-speed cache) solves those pain points in one shot.
 
 ![Community Graph RAG](./images/community_version.png)
 
@@ -8,31 +8,31 @@ Retrieval-Augmented Generation (RAG) is the go-to pattern for grounding large-la
 
 - **Fewer hallucinations.** Queries resolve to concrete nodes and relationships instead of fuzzy embedding neighbours, so the model can't invent facts that aren't in the graph.
 - **Transparent explainability.** Every answer is traceable through a Cypher path that humans can read and auditors can log. No more "the embedding said so."
-- **Governance baked in.** The schema exposes bias hot-spots, records provenance, and satisfies regulatory audits with clear lineage.
+- **Governance baked in.**The schema exposes bias hotspots, records provenance, and satisfies regulatory audits with clear lineage. **
 
 **Dual-memory design**
 
 | Layer                         | Where it lives                                        | What it stores                               | Why it matters                                                |
 | ----------------------------- | ----------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------- |
-| **Long-term memory**          | Dedicated Graph instance on traditional disk          | Curated, non-volatile knowledge graph        | Authoritative source; supports compliance and audit trails    |
+| **Long-term memory** | Dedicated Graph instance on traditional disk          | Curated, non-volatile knowledge graph        | Authoritative source; supports compliance and audit trails    |
 | **Short-term memory / cache** | Separate Graph on NVMe, RAM disk, or NetApp FlexCache | The working set for the current conversation | Millisecond look-ups; keeps latency low even under heavy load |
 
-Promotion is metadata-only: remove an `expiration` timestamp and a short-term fact becomes long-term. The same mechanism enables reinforcement learning—validated insights flow naturally into the permanent graph.
+Promotion is metadata-only: remove an `expiration` timestamp, and a short-term fact becomes long-term. The exact mechanism enables reinforcement learning—validated insights flow naturally into the permanent graph.
 
 **Business impact**
 
-- **Transparency & accountability** - every answer can be walked back to its origin.
-- **Fairness & bias mitigation** - explicit edges make biased correlations easy to spot and fix.
+- **Transparency & Accountability** - Every answer can be traced back to its origin.
+- **Fairness & Bias Mitigation** - Explicit edges make biased correlations easier to spot and fix.
 - **Risk reduction** - grounding answers in a strict knowledge graph slashes the odds of rogue outputs.
-- **Performance at scale** - FlexCache-powered short-term memory keeps hot data near compute while SnapMirror protects it.
+- **Performance at scale** - FlexCache-powered short-term memory keeps hot data close to compute, while SnapMirror protects it.
 
-The sections that follow walk through ingesting data (`ingest.py`), caching queries (`cache_cypher_query.py`), and promoting knowledge (`short_to_long_transfer.py`). Together they form an open-source version any team can drop into a GitHub repo and run today.
+The sections that follow walk through ingesting data (`ingest.py`), caching queries (`cache_cypher_query.py`), and promoting knowledge (`short_to_long_transfer.py`). Together, they form an open-source version any team can drop into a GitHub repo and run today.
 
 Welcome to graph-based RAG: faster, clearer, and finally governable.
 
 ## 2. Ingesting Your Data Into Long-Term Memory
 
-### Why we start with clean knowledge
+### Why We Start With Clean Knowledge
 
 Long-term memory is the system's "source of truth." Anything that lands here must be authoritative, fully traceable, and ready for governance audits. The ingestion pipeline does four things in one pass:
 
@@ -45,34 +45,34 @@ Do this well once, and every downstream RAG prompt inherits the same audit-frien
 
 ### Pipeline at a Glance
 
-The reference `ingest.py` file spells it out clearly: documents are split into paragraphs, entities are lower-cased for stable matching, and everything is stitched together with `PART_OF` and `MENTIONS` relationships .
+The reference `ingest.py` file spells it out clearly: documents are split into paragraphs, entities are lower-cased for stable matching, and everything is stitched together with `PART_OF` and `MENTIONS` relationships.
 
 ```
 Document  <- PART_OF -  Paragraph
 Entity    - MENTIONS -> Paragraph | Document
 ```
 
-Each object carries a UUID plus helpful metadata (category, index, expiration flag). Because relationships store the `expiration` property too, you can later "age out" bad data without touching the nodes.
+Each object carries a UUID, along with helpful metadata (category, index, and expiration flag). Because relationships also store the `expiration` property, you can later "age out" bad data without touching the nodes.
 
 ### Step-by-step Walkthrough
 
 | Stage                           | What happens                                                                                                         | Code cue |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------- |
-| **1. Load a spaCy model**       | `nlp = spacy.load("en_core_web_sm")` boots a fast NER pipeline.                                                      |          |
-| **2. Walk the dataset**         | For every text file, the first line is the title, the rest is body.                                                  |          |
+| **1. Load a spaCy model** | `nlp = spacy.load("en_core_web_sm")` boots a fast NER pipeline.                                                      |          |
+| **2. Walk the dataset** | For every text file, the first line is the title, the rest is the body.                                                  |          |
 | **3. Create a `Document` node** | One call to `create_document` with a fresh UUID stores title, body, category.                                        |          |
-| **4. Split into paragraphs**    | Blank lines mark paragraph breaks; each paragraph gets its own node plus an index for ordering.                      |          |
-| **5. Extract entities**         | The NER loop filters labels via an environment variable so you can ingest only what matters (e.g., `PERSON`, `ORG`). |          |
-| **6. Deduplicate entities**     | `MERGE (e:Entity {name:$name})` guarantees one node per unique lower-cased name—no duplicates, ever.                 |          |
-| **7. Link everything**          | Two `MENTIONS` edges connect the entity to both paragraph and document for multi-hop reasoning.                      |          |
-| **8. Idempotent reruns**        | Rerunning the script won't create duplicates thanks to `MERGE`; useful for batch or streaming loads.                 |          |
+| **4. Split into paragraphs** | Blank lines mark paragraph breaks; each paragraph gets its own node plus an index for ordering.                      |          |
+| **5. Extract entities** | The NER loop filters labels via an environment variable so you can ingest only what matters (e.g., `PERSON`, `ORG`). |          |
+| **6. Deduplicate entities** | `MERGE (e:Entity {name:$name})` guarantees one node per unique lower-cased name—no duplicates, ever.                 |          |
+| **7. Link everything** | Two `MENTIONS` edges connect the entity to both paragraph and document for multi-hop reasoning.                      |          |
+| **8. Idempotent reruns** | Rerunning the script won't create duplicates thanks to `MERGE`; useful for batch or streaming loads.                 |          |
 
 ### Operational Knobs You Control
 
 | Environment variable            | Purpose                                                                                                           |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `DATA_DIR`                      | Where the raw files live. Point it at a shared volume or object store mount.                                      |
-| `NER_TYPES`                     | Comma-separated list of labels to keep. Empty means "accept all."                                                 |
+| `DATA_DIR` | Where the raw files live. Point it at a shared volume or object store mount.                                      |
+| `NER_TYPES` | Comma-separated list of labels to keep. Empty means "accept all."                                                 |
 | `*_URI`, `*_USER`, `*_PASSWORD` | Connection details for your chosen graph database. Swap drivers as needed—nothing in the logic is brand-specific. |
 | `ALLOWED_LABELS` set            | Acts as a coarse throttle so your graph doesn't bloat with every `DATE` or `TIME` entity the NER model finds.     |
 
@@ -82,46 +82,46 @@ Because the script is pure client code, migrating to another graph engine is as 
 
 The outlined code is a model for a recommendation. It's highly recommended and required to adapt your Ontology (ie, Graph structure, keywords, etc) based on your problem domain.
 
-The use of Named-Entity-Recognition, more specifically the use of `spaCy`, is used for demonstration purposes only and to move the discussion along. Ideally, how you anchor your keywords to the associations on source data will be determined by your problem domain. In other words, it is probably more advantageous to implement a Named Entity Recognition model based on the keywords you want to identity and act upon. This could be an off-the-shelf code or this could be a model that you train based on the data in your dataset.
+The use of Named-Entity-Recognition, specifically `spaCy`, is used for demonstration purposes only and to facilitate the discussion. Ideally, how you anchor your keywords to the associations on source data will be determined by your problem domain. In other words, it is more advantageous to implement a Named Entity Recognition model based on the keywords you want to identify and act upon. This could be an off-the-shelf code or a model that you train based on the data in your dataset.
 
 ## 3. Promotion of Long-Term Memory into Short-Term Cache
 
 ### Why bother with promotion?
 
-Queries rarely roam the entire knowledge graph. Most conversations cling to a handful of entities for a while—think of them as today's "hot topics." Shuttling those entities (and the paragraphs that mention them) into a high-speed cache keeps latency down and keeps your GPU batch queue humming instead of twiddling its thumbs.
+Queries rarely roam the entire knowledge graph. Most conversations cling to a handful of entities for a while—think of them as today's "hot topics." Shuttling those entities (and the paragraphs that mention them) into a high-speed cache keeps latency low and keeps your GPU batch queue humming, rather than twiddling its thumbs.
 
 ### How the promotion cycle works
 
 1. **Detect entities in the user's question.**
-   The demo loop runs a spaCy pass over every prompt and collects `(name, label)` pairs. If an entity hasn't been seen in the current session, it becomes a promotion candidate .
+ The demo loop runs a spaCy pass over every prompt and collects `(name, label)` pairs. If an entity hasn't been seen in the current session, it becomes a promotion candidate.
 
 2. **Fetch the full context from long-term memory.**
-   A Cypher statement (shown in the reference code as `PROMOTION_QUERY`) grabs the entity, its parent document, and every paragraph that references it in a single round-trip .
+ A Cypher statement (shown in the reference code as `PROMOTION_QUERY`) retrieves the entity, its parent document, and every paragraph that references it in a single round-trip.
 
 3. **Copy the sub-graph into short-term memory.**
-   The function `promote_entity` merges nodes and relationships into the cache. It also writes an expiration timestamp (`TTL_MS`, default = 1 hour) so stale data quietly disappears tomorrow morning  .
+ The function `promote_entity` merges nodes and relationships into the cache. It also writes an expiration timestamp (`TTL_MS`, default = 1 hour) so stale data quietly disappears tomorrow morning.
 
 4. **Optionally include the whole document.**
-   Flip `PROMOTE_DOCUMENT_NODES=0` if you only need paragraphs; leave it on to keep the top-level document for full-text answers .
+ Flip `PROMOTE_DOCUMENT_NODES=0` if you only need paragraphs; leave it on to keep the top-level document for full-text answers.
 
-5. **Serve the user from cache first.**
-   After promotion, subsequent queries pull paragraphs straight from short-term memory via `FETCH_PARAS_QUERY`, ordered by "how many entities match" and paragraph index .
+5. **Serve the user from the cache first.**
+ After promotion, subsequent queries pull paragraphs straight from short-term memory via `FETCH_PARAS_QUERY`, ordered by "how many entities match" and paragraph index.
 
 ### Key design decisions
 
 | Design choice                            | Rationale                                                                                                                                                           |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Expiration on the edge, not the node** | Relationships get an `expiration` timestamp. When it lapses, the edge becomes invisible without deleting the node—perfect for governance audits.                    |
-| **Idempotent merges**                    | Every `MERGE` uses a stable UUID, so re-running promotion can't create duplicates .                                                                                 |
-| **Session-level "seen" cache**           | A tiny in-memory set blocks redundant promotions inside the same chat. CPU-cheap and embarrassingly effective .                                                     |
-| **Storage-agnostic layers**              | The promotion logic is plain Cypher plus a driver call. Swap the driver and connection strings, and you're on a different graph engine—no code gymnastics required. |
+| **Expiration on the edge, not the node** | Relationships get an `expiration` timestamp. When it lapses, the edge becomes invisible without deleting the node, perfect for governance audits.                    |
+| **Idempotent merges** | Every `MERGE` uses a stable UUID, so re-running promotion can't create duplicates.                                                                                 |
+| **Session-level "seen" cache** | A tiny in-memory set blocks redundant promotions inside the same chat. CPU-cheap and embarrassingly effective.                                                     |
+| **Storage-agnostic layers** | The promotion logic consists of plain Cypher and a driver call. Swap the driver and connection strings, and you're on a different graph engine—no code gymnastics required. |
 
 ### Operational knobs you can tweak
 
 | Env var / constant         | What it controls                                                              |
 | -------------------------- | ----------------------------------------------------------------------------- |
-| `TTL_MS`                   | Lifetime of cached facts (default: one day).                                  |
-| `PROMOTE_DOCUMENT_NODES`   | Promote whole documents (`1`) or paragraphs only (`0`).                       |
+| `TTL_MS` | Lifetime of cached facts (default: one day).                                  |
+| `PROMOTE_DOCUMENT_NODES` | Promote whole documents (`1`) or paragraphs only (`0`).                       |
 | `INTERESTING_ENTITY_TYPES` | Filter which entity labels trigger promotion (PERSON, ORG, etc.).             |
 | High-speed backing store   | NVMe, RAM disk, NetApp **FlexCache**—pick your weapon for micro-second reads. |
 
@@ -133,7 +133,7 @@ Queries rarely roam the entire knowledge graph. Most conversations cling to a ha
 
 ### The payoff
 
-Promotion turns your short-term memory into a turbo-charged working set: most answers come straight from fast storage, while long-term memory idles happily on cheaper disks. The result? Faster responses, lower I/O thrash, and an audit trail you can actually read.
+Promotion turns your short-term memory into a turbo-charged working set: most answers come straight from fast storage, while long-term memory idles happily on cheaper disks. The result? Faster responses, lower I/O thrash, and an audit trail you can read.
 
 ## 4. Provides Reinforcement Learning and Data Promotion
 
@@ -145,7 +145,7 @@ If short-term memory is the "working set," reinforcement learning decides what d
 
 Large language models freeze at their last training cut-off. **Managed Content Pipelines (MCP)**—news feeds, regulatory bulletins, live sensor logs, you name it—fill that gap. They pour *new* events into short-term memory minutes after they happen. From there:
 
-1. **Immediate recall.** Users can question the fresh data right away.
+1. **Immediate recall.** Users can review the fresh data right away.
 2. **Scoring starts.** Every cache hit or explicit "yes, that's correct" bumps the item's `confidence_score`.
 3. **Automatic promotion.** Once `confidence_score ≥ PROMOTE_THRESHOLD`, the `short_to_long_transfer.py` job copies the sub-graph into long-term memory and marks it `promoted:true`.
 
@@ -153,11 +153,11 @@ Large language models freeze at their last training cut-off. **Managed Content P
 
 | Stage                              | Trigger                                       | Action                                                                                              |
 | ---------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| **1. Ingest MCP event**            | New item arrives                              | Create nodes/edges in short-term memory with `confidence_score=1`, `expiration=TTL`.                |
-| **2. Increment score**             | Paragraph or entity is retrieved in an answer | `confidence_score += HIT_WEIGHT`.                                                                   |
+| **1. Ingest MCP event** | New item arrives                              | Create nodes/edges in short-term memory with `confidence_score=1`, `expiration=TTL`.                |
+| **2. Increment score** | Paragraph or entity is retrieved in an answer | `confidence_score += HIT_WEIGHT`.                                                                   |
 | **3. Human validation (optional)** | SME flags item as correct                     | `confidence_score += VALIDATION_WEIGHT`.                                                            |
-| **4. Cross threshold**             | `confidence_score ≥ PROMOTE_THRESHOLD`        | `promotion_job` copies the sub-graph and relationships into long-term memory; clears `expiration`.  |
-| **5. Audit trail**                 | After copy                                    | Write a promotion log record with timestamp, user/session id, and source (e.g., "MCP-regulations"). |
+| **4. Cross threshold** | `confidence_score ≥ PROMOTE_THRESHOLD` | `promotion_job` copies the sub-graph and relationships into long-term memory; clears `expiration`.  |
+| **5. Audit trail** | After copy                                    | Write a promotion log record with timestamp, user/session id, and source (e.g., "MCP-regulations"). |
 
 All scoring fields live on the **relationship**, not the node, so you can retract a single claim without touching the underlying entity.
 
@@ -169,15 +169,15 @@ MATCH (d:Document {promoted:false})<-[:PART_OF]-(p:Paragraph)
 WHERE p.confidence_score >= $PROMOTE_THRESHOLD
 WITH d, COLLECT(p) AS paras
 CALL {
-  WITH d, paras
-  // create-or-merge in long-term store
-  UNWIND paras AS para
-  MERGE (ld:Document {uuid:d.uuid})          // idempotent
-  MERGE (lp:Paragraph {uuid:para.uuid})
-  MERGE (lp)-[:PART_OF]->(ld)
-  FOREACH (rel IN relationships(para) |
-           MERGE (e:Entity {uuid:rel.other_uuid})
-           MERGE (e)-[:MENTIONS]->(lp))
+ WITH d, paras
+ // create-or-merge in long-term store
+ UNWIND paras AS para
+ MERGE (ld:Document {uuid:d.uuid})          // idempotent
+ MERGE (lp:Paragraph {uuid:para.uuid})
+ MERGE (lp)-[:PART_OF]->(ld)
+ FOREACH (rel IN relationships(para) |
+ MERGE (e:Entity {uuid:rel.other_uuid})
+ MERGE (e)-[:MENTIONS]->(lp))
 }
 SET d.promoted = true
 ```
@@ -188,10 +188,10 @@ SET d.promoted = true
 
 | Variable            | Default | Why you might change it                                                   |
 | ------------------- | ------- | ------------------------------------------------------------------------- |
-| `HIT_WEIGHT`        | 1       | Raise it for longer chat sessions, lower it for high-volume API calls.    |
+| `HIT_WEIGHT` | 1       | Raise it for longer chat sessions, lower it for high-volume API calls.    |
 | `VALIDATION_WEIGHT` | 10      | Higher when humans are the gatekeepers; lower for purely automated flows. |
 | `PROMOTE_THRESHOLD` | 25      | Controls strictness—set high for regulated domains.                       |
-| `TTL`               | 1 h     | Shorten for bursty data (social media), extend for weekly digests.        |
+| `TTL` | 1 h     | Shorten for bursty data (social media), extend for weekly digests.        |
 
 ### Governance and safety wins
 
@@ -214,7 +214,7 @@ For reference, please check out the following: [community_version/README.md](./c
 Graph-based RAG gives you more than quick answers—it gives you answers you can **trust**.
 
 - **Transparency and explainability** come baked-in: every node and relationship is a breadcrumb you can trace end-to-end.
-- **Fairness, accountability, and risk control** improve because biases and data lineage sit in plain sight.
+- **Fairness, accountability, and risk control** improve because biases and data lineage are made visible.
 - **Compliance** stops feeling like red tape and starts feeling like a query away.
 
 Pair that with the dual-memory design—lightning-fast short-term cache plus durable long-term memory—and you get a system that's both **responsive today** and **auditable tomorrow**.
