@@ -34,7 +34,7 @@ For demonstration purposes, we will create a RAM disk and mount it to `$HOME/neo
 
 ### Linux RAM disk
 
-"`bash
+```bash
 # 1. Create the mount point
 mkdir -p $HOME/neo4j-short
 
@@ -47,14 +47,14 @@ sudo chown $USER:$USER $HOME/neo4j-short
 
 To clean up the RAM disk, run the following commands:
 
-"`bash
+```bash
 sudo umount $HOME/neo4j-short
 rmdir $HOME/neo4j-short
 ```
 
 ### MacOS RAM disk
 
-"`bash
+```bash
 # 1. Create the mount point
 mkdir -p $HOME/neo4j-short
 
@@ -70,7 +70,7 @@ sudo mount -t hfs $DEVICE $HOME/neo4j-short
 
 To clean up the RAM disk, run the following commands:
 
-"`bash
+```bash
 sudo umount $HOME/neo4j-short
 hdiutil detach $DEVICE
 ```
@@ -79,42 +79,42 @@ hdiutil detach $DEVICE
 
 First, spin up two instances of Neo4j using Docker; an instance for `long-term memory` and one for `short-term memory and caching`. Each instance will expose different ports for bolt and the UI. Below is a **Docker command** that starts a Neo4j instance:
 
-"`bash
+```bash
 # Long-Term Memory Instance
 # Admin Panel: http://127.0.0.1:7475
 # Note the password difference: neo4jneo4j1
 docker run -d \
- --name neo4j-long \
+    --name neo4j-long \
     -p 7475:7474  -p 7688:7687 \
- -e NEO4J_AUTH=neo4j/neo4jneo4j1 \
+    -e NEO4J_AUTH=neo4j/neo4jneo4j1 \
     -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes \
- -e NEO4JLABS_PLUGINS='["apoc"]' \
+    -e NEO4JLABS_PLUGINS='["apoc"]' \
     -e NEO4J_apoc_export_file_enabled=true \
- -e NEO4J_apoc_import_file_enabled=true \
+    -e NEO4J_apoc_import_file_enabled=true \
     -e NEO4J_server_http_advertised__address="localhost:7475" \
- -e NEO4J_server_bolt_advertised__address="localhost:7688" \
+    -e NEO4J_server_bolt_advertised__address="localhost:7688" \
     -v "$HOME/neo4j-long/data":/data \
- -v "$HOME/neo4j-long/import":/import \
+    -v "$HOME/neo4j-long/import":/import \
     -v "$HOME/neo4j-long/plugins":/plugins \
- neo4j:5.26
+    neo4j:5.26
 
 # short-Term Memory/Cache Instance
 # Admin Panel: http://127.0.0.1:7476
 # Note the password difference: neo4jneo4j2
 docker run -d \
- --name neo4j-short \
+    --name neo4j-short \
     -p 7476:7474 -p 7689:7687 \
- -e NEO4J_AUTH=neo4j/neo4jneo4j2 \
+    -e NEO4J_AUTH=neo4j/neo4jneo4j2 \
     -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes \
- -e NEO4JLABS_PLUGINS='["apoc"]' \
+    -e NEO4JLABS_PLUGINS='["apoc"]' \
     -e NEO4J_apoc_export_file_enabled=true \
- -e NEO4J_apoc_import_file_enabled=true \
+    -e NEO4J_apoc_import_file_enabled=true \
     -e NEO4J_server_http_advertised__address="localhost:7476" \
- -e NEO4J_server_bolt_advertised__address="localhost:7689" \
+    -e NEO4J_server_bolt_advertised__address="localhost:7689" \
     -v "$HOME/neo4j-short/data":/data \
- -v "$HOME/neo4j-short/import":/import \
+    -v "$HOME/neo4j-short/import":/import \
     -v "$HOME/neo4j-short/plugins":/plugins \
- neo4j:5.26
+    neo4j:5.26
 ```
 
 This will download the Neo4j image (if not already present) and start two Neo4j servers in the background. The Neo4j database will be empty initially. You can verify it's running by opening the Neo4j Browser at **[http://localhost:7475](http://localhost:7475)** and **[http://localhost:7476](http://localhost:7476)** in your browser. Log in with the username `neo4j` and use the corresponding password for your instance. If you see the Neo4j UI, your database is up and ready.
@@ -127,13 +127,13 @@ With Neo4j running and the model file ready, set up a Python environment for run
 
 Install the required Python libraries using pip. A convenient `requirements.txt` file has been provided for you. 
 
-"`bash
+```bash
 pip install -r requirements.txt
 ```
 
 After installing spaCy, download the small English model for NER:
 
-"`bash
+```bash
 python -m spacy download en_core_web_sm
 ```
 
@@ -150,19 +150,19 @@ Our knowledge source is a collection of BBC news articles in text format, which 
 ```
 bbc/
 ├── tech/
- ├── 001.txt
- ├── 002.txt
- ├── 003.txt
- ├── 004.txt
- ├── 005.txt
- └── ...
+    ├── 001.txt
+    ├── 002.txt
+    ├── 003.txt
+    ├── 004.txt
+    ├── 005.txt
+    └── ...
 ```
 
 Each file is a news article relating to technology in the world today.
 
 You may need to unzip the `bbc-example.zip` file, which you can do by running this script:
 
-"`bash
+```bash
 unzip bbc-example.zip
 ```
 
