@@ -8,7 +8,7 @@ Retrieval-Augmented Generation (RAG) is the go-to approach for grounding large l
 
 - **Fewer hallucinations.** Queries resolve to concrete nodes and relationships instead of fuzzy embedding neighbours, so the model can't invent facts that aren't in the graph.
 - **Transparent explainability.** Every answer is traceable through a Cypher path that humans can read and auditors can log. No more "the embedding said so."
-- **Governance baked in.**The schema exposes bias hotspots, records provenance, and satisfies regulatory audits with clear lineage. **
+- **Governance baked in.** The schema exposes bias hot-spots, records provenance, and satisfies regulatory audits with clear lineage.
 
 **Dual-memory design**
 
@@ -169,15 +169,15 @@ MATCH (d:Document {promoted:false})<-[:PART_OF]-(p:Paragraph)
 WHERE p.confidence_score >= $PROMOTE_THRESHOLD
 WITH d, COLLECT(p) AS paras
 CALL {
- WITH d, paras
- // create-or-merge in long-term store
- UNWIND paras AS para
- MERGE (ld:Document {uuid:d.uuid})          // idempotent
- MERGE (lp:Paragraph {uuid:para.uuid})
- MERGE (lp)-[:PART_OF]->(ld)
- FOREACH (rel IN relationships(para) |
- MERGE (e:Entity {uuid:rel.other_uuid})
- MERGE (e)-[:MENTIONS]->(lp))
+  WITH d, paras
+  // create-or-merge in long-term store
+  UNWIND paras AS para
+  MERGE (ld:Document {uuid:d.uuid})          // idempotent
+  MERGE (lp:Paragraph {uuid:para.uuid})
+  MERGE (lp)-[:PART_OF]->(ld)
+  FOREACH (rel IN relationships(para) |
+           MERGE (e:Entity {uuid:rel.other_uuid})
+           MERGE (e)-[:MENTIONS]->(lp))
 }
 SET d.promoted = true
 ```

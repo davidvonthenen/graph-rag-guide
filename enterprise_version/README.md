@@ -40,42 +40,42 @@ We will now launch two Neo4j instances (one for **long-term memory** and one for
 
 Below are example Docker CLI commands for the Neo4j instances. They configure each Neo4j container with the necessary ports, credentials, and plugins (APOC is enabled for import/export). The short-term instance's data directory is pointed at the high-speed storage (`$HOME/neo4j-short`). Both instances are given distinct ports and passwords:
 
-"`bash
+```bash
 # Long-Term Memory Instance (neo4j-long-term)
 # Admin Panel: http://127.0.0.1:7475
 # Note the password: neo4j/neo4jneo4j1
 docker run -d \
- --name neo4j-long-term \
+    --name neo4j-long-term \
     -p 7475:7474 -p 7688:7687 \
- -e NEO4J_AUTH=neo4j/neo4jneo4j1 \
+    -e NEO4J_AUTH=neo4j/neo4jneo4j1 \
     -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes \
- -e NEO4JLABS_PLUGINS='["apoc"]' \
+    -e NEO4JLABS_PLUGINS='["apoc"]' \
     -e NEO4J_apoc_export_file_enabled=true \
- -e NEO4J_apoc_import_file_enabled=true \
+    -e NEO4J_apoc_import_file_enabled=true \
     -e NEO4J_server_http_advertised__address="localhost:7475" \
- -e NEO4J_server_bolt_advertised__address="localhost:7688" \
+    -e NEO4J_server_bolt_advertised__address="localhost:7688" \
     -v "$HOME/neo4j-long/data":/data \
- -v "$HOME/neo4j-long/import":/import \
+    -v "$HOME/neo4j-long/import":/import \
     -v "$HOME/neo4j-long/plugins":/plugins \
- neo4j:5.26
+    neo4j:5.26
 
 # Short-Term Memory/Cache Instance (neo4j-short-term)
 # Admin Panel: http://127.0.0.1:7476
 # Note the password: neo4j/neo4jneo4j2
 docker run -d \
- --name neo4j-short-term \
+    --name neo4j-short-term \
     -p 7476:7474 -p 7689:7687 \
- -e NEO4J_AUTH=neo4j/neo4jneo4j2 \
+    -e NEO4J_AUTH=neo4j/neo4jneo4j2 \
     -e NEO4J_ACCEPT_LICENSE_AGREEMENT=yes \
- -e NEO4JLABS_PLUGINS='["apoc"]' \
+    -e NEO4JLABS_PLUGINS='["apoc"]' \
     -e NEO4J_apoc_export_file_enabled=true \
- -e NEO4J_apoc_import_file_enabled=true \
+    -e NEO4J_apoc_import_file_enabled=true \
     -e NEO4J_server_http_advertised__address="localhost:7476" \
- -e NEO4J_server_bolt_advertised__address="localhost:7689" \
+    -e NEO4J_server_bolt_advertised__address="localhost:7689" \
     -v "$HOME/neo4j-short/data":/data \
- -v "$HOME/neo4j-short/import":/import \
+    -v "$HOME/neo4j-short/import":/import \
     -v "$HOME/neo4j-short/plugins":/plugins \
- neo4j:5.26
+    neo4j:5.26
 ```
 
 > **Note:** If running manually, first create a Docker network (e.g. `docker network create graph-rag-net`) and add `--network graph-rag-net` to each `docker run`. Ensure the Kafka and Connect containers use the same network, so that the connectors can reach the Neo4j instances by name.
@@ -92,13 +92,13 @@ Next, set up the Kafka Connect **Source** and **Sink** connectors for Neo4j. The
 
 **Neo4j Source Connector (Long-term → Short-term):** This connector monitors the long-term Neo4j database for relevant changes or query results and publishes them to Kafka topics. For on-demand caching, we configure the source to execute a parameterized Cypher query for entities of interest and stream the results. For example, a source connector configuration might look like this (connecting to the long-term DB and outputting to topics with a `promoted` prefix):
 
-"`json
+```json
 {
   "name": "ShortTermNeo4jSource",
   "connector.class": "Neo4jSourceConnector",
   "neo4j.server.uri": "bolt://neo4j-long-term:7688",
   "topic.prefix": "promoted",
-  "neo4j.streaming.from ": "now"
+  "neo4j.streaming.from": "now"
 }
 ```
 
@@ -106,12 +106,12 @@ This tells Kafka Connect to start streaming from the **neo4j-long-term** instanc
 
 **Neo4j Sink Connector (Short-term → Long-term):** This connector consumes Kafka topics and writes data into a Neo4j database. In our setup, we utilize a sink on the **long-term** database to receive validated facts from short-term memory. We embed Cypher templates in the sink configuration to define *how* the incoming events should be merged into Neo4j. For example, the sink config below listens on topics for promoted nodes and relationships and upserts them into the long-term store:
 
-"`json
+```json
 {
   "name": "LongTermNeo4jSink",
   "connector.class": "Neo4jSinkConnector",
   "topics": "validated.nodes,validated.rels",
-  "neo4j.topic.cypher.validated.nodes ": "MERGE (n:Entity {uuid:event.id}) SET n += event.properties REMOVE n.expiration SET n.promoted=true",
+  "neo4j.topic.cypher.validated.nodes": "MERGE (n:Entity {uuid:event.id}) SET n += event.properties REMOVE n.expiration SET n.promoted=true",
   "neo4j.topic.cypher.validated.rels": "MERGE (a {uuid:event.start.id}) MERGE (b {uuid:event.end.id}) MERGE (a)-[r:MENTIONS]->(b) SET r += event.properties REMOVE r.expiration SET r.promoted=true"
 }
 ```
@@ -128,13 +128,13 @@ With the databases and Kafka pipeline running, set up the Python environment for
 
 Install the required Python libraries using the provided `requirements.txt`:
 
-"`bash
+```bash
 pip install -r requirements.txt
 ```
 
 This will install necessary packages such as Neo4j Python driver, Py2Neo, spaCy, etc. After installing spaCy, download the small English model for named entity recognition (NER) if you haven't already:
 
-"`bash
+```bash
 python -m spacy download en_core_web_sm
 ```
 
@@ -151,19 +151,19 @@ Our example knowledge source is a collection of BBC news articles in text format
 ```
 bbc/
 ├── tech/
- ├── 001.txt
- ├── 002.txt
- ├── 003.txt
- ├── 004.txt
- ├── 005.txt
- └── ...
+    ├── 001.txt
+    ├── 002.txt
+    ├── 003.txt
+    ├── 004.txt
+    ├── 005.txt
+    └── ...
 ```
 
 Each file is a news article related to technology. In an enterprise scenario, this would be replaced with your domain-specific documents (internal wikis, knowledge bases, incident reports, etc.). Still, the BBC dataset serves as a clean example for this demonstration.
 
 If you have not already, unzip the `bbc-example.zip` file (located in this repository) to prepare the data directory:
 
-"`bash
+```bash
 unzip bbc-example.zip
 ```
 

@@ -66,9 +66,9 @@ Long‑term memory is the system's **source of truth**. Anything that lands here
 MERGE (d:Document {doc_uuid:$doc_uuid})
 SET d.title=$title, d.category=$category
 FOREACH (p IN $paragraphs |   
- MERGE (para:Paragraph {para_uuid:p.uuid})
- SET para.index=p.index, para.text=p.text
- MERGE (para)-[:PART_OF]->(d))
+  MERGE (para:Paragraph {para_uuid:p.uuid})
+  SET para.index=p.index, para.text=p.text
+  MERGE (para)-[:PART_OF]->(d))
 ```
 
 The community script already ensures idempotency. In an enterprise setting, wrap each batch in a single transaction and tag it with a **batch ID** for easier rollback.
@@ -122,7 +122,7 @@ With clean, well‑labeled data in long‑term memory, every downstream RAG prom
 4. **LLM retrieves** paragraphs from the high‑speed store; latency drops to sub‑50 ms.
 5. **TTL sweeper job** runs hourly, deleting edges whose `expiration` is in the past. Nodes stay for audit, edges vanish for speed.
 
-"`cypher
+```cypher
 // PROMOTION_QUERY - executed by Source Connector
 MATCH (e:Entity {name:$name})-[:MENTIONS]->(p:Paragraph)
 OPTIONAL MATCH (p)-[:PART_OF]->(d:Document)
@@ -147,13 +147,13 @@ The community version calls `promote_entity()` from Python. Enterprises need som
 
 > **Connector snippet**
 
-"`json
+```json
 {
   "name": "ShortTermNeo4jSource",
   "connector.class": "Neo4jSourceConnector",
   "neo4j.server.uri": "bolt://neo4j-long-term:7688",
   "topic.prefix": "promoted",
-  "neo4j.streaming.from ": "now"
+  "neo4j.streaming.from": "now"
 }
 ```
 
@@ -205,7 +205,7 @@ In short, RAM disks and NVMe get you speed, but FlexCache delivers speed **plus*
 5. **Kafka Sink Connector** on the *long‑term* DB consumes the topic and `MERGE`s the sub‑graph **without** the `expiration` property, setting `promoted = true` for traceability.
 6. **Confirmation log** — both connectors write offsets and Neo4j tx IDs for audit.
 
-"`cypher
+```cypher
 // Increment score on hit
 MATCH (p:Paragraph {para_uuid:$uuid})-[r:MENTIONS]-()
 SET r.confidence_score = coalesce(r.confidence_score,0) + $weight
@@ -225,13 +225,13 @@ SET r:Validated;
 
 ### Kafka Connector Cypher Snippet *(Sink → Long‑Term)*
 
-"`json
+```json
 {
   "name": "LongTermNeo4jSink",
   "connector.class": "Neo4jSinkConnector",
   "topics": "validated.nodes,validated.rels",
-  "neo4j.topic. Cypher.validated.nodes ": "MERGE (n:Entity {uuid:event.id}) SET n += event.properties REMOVE n.expiration SET n.promoted=true",
-  "neo4j.topic. Cypher.validated.rels": "MERGE (a {uuid:event.start.id}) MERGE (b {uuid:event.end.id}) MERGE (a)-[r:MENTIONS]->(b) SET r += event.properties REMOVE r.expiration SET r.promoted=true"
+  "neo4j.topic.cypher.validated.nodes": "MERGE (n:Entity {uuid:event.id}) SET n += event.properties REMOVE n.expiration SET n.promoted=true",
+  "neo4j.topic.cypher.validated.rels": "MERGE (a {uuid:event.start.id}) MERGE (b {uuid:event.end.id}) MERGE (a)-[r:MENTIONS]->(b) SET r += event.properties REMOVE r.expiration SET r.promoted=true"
 }
 ```
 
