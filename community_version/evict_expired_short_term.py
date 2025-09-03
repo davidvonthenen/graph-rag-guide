@@ -1,3 +1,5 @@
+# Copyright 2025 NetApp, Inc. All Rights Reserved.
+
 #!/usr/bin/env python3
 """
 evict_expired_short_term.py ― TTL garbage-collector for short-term memory

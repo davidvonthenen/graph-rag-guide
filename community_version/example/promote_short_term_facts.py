@@ -1,3 +1,5 @@
+# Copyright 2025 NetApp, Inc. All Rights Reserved.
+
 #!/usr/bin/env python3
 """
 transfer_and_query.py

@@ -1,3 +1,5 @@
+# Copyright 2025 NetApp, Inc. All Rights Reserved.
+
 #!/usr/bin/env python3
 """
 ingest.py ― Filtered NER ingest for a **Graph-based RAG** long-term store.

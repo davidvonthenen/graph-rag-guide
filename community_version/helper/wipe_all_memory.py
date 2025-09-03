@@ -1,3 +1,5 @@
+# Copyright 2025 NetApp, Inc. All Rights Reserved.
+
 #!/usr/bin/env python3
 """
 wipe_all_memory.py - Wipe all data from Neo4j databases
