@@ -1,3 +1,5 @@
+# Copyright 2025 NetApp, Inc. All Rights Reserved.
+
 #!/usr/bin/env python3
 """
 graph_rag_query.py ― Query pipeline for the Graph-based RAG agent

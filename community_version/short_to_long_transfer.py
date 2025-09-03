@@ -1,3 +1,5 @@
+# Copyright 2025 NetApp, Inc. All Rights Reserved.
+
 #!/usr/bin/env python3
 """
 short_to_long_transfer.py — Promote *validated* knowledge chunks from the **short-term

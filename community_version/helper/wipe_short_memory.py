@@ -1,3 +1,5 @@
+# Copyright 2025 NetApp, Inc. All Rights Reserved.
+
 #!/usr/bin/env python3
 """
 wipe_short_memory.py - Wipe all data from SHORT TERM Neo4j databases
