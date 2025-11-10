@@ -58,7 +58,7 @@ Unlike vector databases, which represent knowledge as isolated high-dimensional 
 
 ### **Short-Term vs. Long-Term Memory Roles**
 
-A distinctive feature of a Graph-based RAG architecture is its explicit support for two distinct memory mechanisms: **short-term** and **long-term memory**:
+A distinctive feature of this Graph-based RAG architecture is its explicit support for two distinct memory mechanisms: **short-term** and **long-term memory**:
 
 - **Short-Term Memory**: Captures transient data and context relevant only within a limited timeframe (e.g., the duration of a conversation, query session, or timed interval). In practical terms, short-term memory is often implemented using graph edges marked with timestamps indicating their expiration. For example, relationships (MENTIONS) connecting entities and documents may carry an expiration timestamp set shortly after creation (e.g., 1 hour). This memory is ephemeral by design, optimized for rapid insertion and retrieval to support real-time interactions.
 
@@ -88,7 +88,7 @@ A notable advantage of graph-based architectures is their inherent explainabilit
 
 ### **Visualizing the Architecture (Referencing Diagram)**
 
-To conceptualize this clearly, consider the diagram on page 10 of the provided materials. It compares traditional vector-based RAG architectures with Graph-based RAG systems. Vector-based architectures rely on semantic embedding models, generating and retrieving flat embeddings from vector databases. In contrast, the Graph-based RAG model clearly outlines how queries and responses flow through structured data representations, enabling explicit data lookups, and structured knowledge generation paths.
+To conceptualize this clearly, consider the diagram below. It compares traditional vector-based RAG architectures with Graph-based RAG systems. Vector-based architectures rely on semantic embedding models, generating and retrieving flat embeddings from vector databases. In contrast, the Graph-based RAG model clearly outlines how queries and responses flow through structured data representations, enabling explicit data lookups, and structured knowledge generation paths.
 
 ![Architecture Differences Between Vector vs Graph](./images/Avi-Chawla-graph-rag.gif)
 
