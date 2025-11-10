@@ -17,8 +17,8 @@ Key design points
 - **Governance hooks** - Every node and edge carries an `expiration` field.
   Toggling that flag hides bad data without deleting history.
 - **Label filtering** - Set the `NER_TYPES` environment variable to restrict
-  which spaCy entity labels are stored (e.g. only `PERSON,ORG,GPE`). Leaving
-  it empty ingests every entity the model emits.
+  which entity labels are stored (e.g. only `PERSON,ORG,GPE`). Leaving it
+  empty ingests every entity the NER service emits.
 - **Driver-agnostic Cypher** - The logic is pure Cypher + driver calls. Swapping
   to a different graph backend means changing only the driver import + URI.
 
@@ -29,15 +29,16 @@ LONG_NEO4J_URI, LONG_NEO4J_USER, LONG_NEO4J_PASSWORD
 DATA_DIR
     Root folder that holds sub-directories of `.txt` files (default: ./bbc).
 NER_TYPES
-    Comma-separated list of spaCy labels to ingest (case-insensitive).
+    Comma-separated list of entity labels to ingest (case-insensitive). The
+    NER REST service applies this filter server-side.
 """
 
 import os
 import uuid
 from pathlib import Path
 
-import spacy
 from neo4j import GraphDatabase  # swap this import if you use a different driver
+from ner_api import call_ner_service, parse_entity_pairs
 
 ###############################################################################
 # Configuration
@@ -199,7 +200,7 @@ def link_mentions(tx, ent_uuid: str, doc_uuid: str, para_uuid: str) -> None:
 # Ingest logic
 ###############################################################################
 
-def ingest_file(nlp, session, category: str, path: Path) -> None:
+def ingest_file(session, category: str, path: Path) -> None:
     """
     Parse a single text file and write its nodes / edges in a single session.
     * First line          → title
@@ -221,18 +222,26 @@ def ingest_file(nlp, session, category: str, path: Path) -> None:
         para_uuid = str(uuid.uuid4())
         session.execute_write(create_paragraph, para_uuid, text, idx, doc_uuid)
 
-        # Entity extraction & linkage
-        for ent in nlp(text).ents:
-            if ALLOWED_LABELS and ent.label_.upper() not in ALLOWED_LABELS:
-                continue
+        response = call_ner_service(
+            text,
+            promote=False,
+            labels=sorted(ALLOWED_LABELS) if ALLOWED_LABELS else None,
+        )
+        entity_pairs = parse_entity_pairs(response)
+        if ALLOWED_LABELS:
+            entity_pairs = [
+                (name, label)
+                for name, label in entity_pairs
+                if label.upper() in ALLOWED_LABELS
+            ]
 
+        for name, label in entity_pairs:
             ent_uuid = str(uuid.uuid4())
-            session.execute_write(merge_entity, ent_uuid, ent.text, ent.label_)
+            session.execute_write(merge_entity, ent_uuid, name, label)
             session.execute_write(link_mentions, ent_uuid, doc_uuid, para_uuid)
 
 def main() -> None:
-    print("Loading spaCy model …")
-    nlp = spacy.load("en_core_web_sm")
+    print("Loading NER service …")
 
     # One driver + one session keeps code tidy for a batch script
     with GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)) as driver, driver.session() as session:
@@ -255,7 +264,7 @@ def main() -> None:
 
             print(f"\n=== Category: {category} ===")
             for txt in sorted(category_path.glob("*.txt")):
-                ingest_file(nlp, session, category, txt)
+                ingest_file(session, category, txt)
 
     # Recap which labels made it in
     if ALLOWED_LABELS:
