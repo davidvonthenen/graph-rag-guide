@@ -58,7 +58,7 @@ from typing import Iterable, List, Tuple
 
 from llama_cpp import Llama
 from neo4j import GraphDatabase, Session
-from ner_api import NerServiceError, call_ner_service, parse_entity_pairs
+from common import NerServiceError, call_ner_service, parse_entity_pairs
 
 ##############################################################################
 # Configuration - change via ENV or edit defaults for local testing

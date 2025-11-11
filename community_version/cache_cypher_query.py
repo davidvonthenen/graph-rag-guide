@@ -47,7 +47,7 @@ from typing import Iterable, List, Tuple
 
 from llama_cpp import Llama
 from neo4j import GraphDatabase, Session
-from ner_api import NerServiceError, call_ner_service, parse_entity_pairs
+from common import NerServiceError, call_ner_service, create_indexes, parse_entity_pairs
 
 ##############################################################################
 # Configuration
@@ -113,44 +113,6 @@ def connect_short():
 def connect_long():
     """Return a Neo4j driver pointed at the long-term store."""
     return GraphDatabase.driver(LONG_NEO4J_URI, auth=(LONG_NEO4J_USER, LONG_NEO4J_PASSWORD))
-
-
-###############################################################################
-# Index helpers
-###############################################################################
-
-
-def create_indexes(session) -> None:
-    """
-    Create indexes that matter for read latency.
-    Safe to call multiple times; uses IF NOT EXISTS.
-    """
-    session.run(
-        """
-        CREATE RANGE INDEX ent_name_label IF NOT EXISTS
-        FOR (e:Entity) ON (e.name, e.label)
-        """
-    )
-    session.run(
-        """
-        CREATE RANGE INDEX ent_uuid_idx IF NOT EXISTS
-        FOR (e:Entity) ON (e.ent_uuid)
-        """
-    )
-    session.run(
-        """
-        CREATE RANGE INDEX para_uuid_idx IF NOT EXISTS
-        FOR (p:Paragraph) ON (p.para_uuid)
-        """
-    )
-    session.run(
-        """
-        CREATE RANGE INDEX doc_uuid_idx IF NOT EXISTS
-        FOR (d:Document) ON (d.doc_uuid)
-        """
-    )
-    # Wait until all indexes are online before answering queries.
-    session.run("CALL db.awaitIndexes()")
 
 
 ##############################################################################
