@@ -24,6 +24,7 @@ def post_ner(
     ttl_ms: int | None = None,
     timeout: float = 5.0,
 ) -> dict:
+    """Invoke the shared NER + promotion service and return the JSON payload."""
     return call_ner_service(
         text,
         labels=labels,
@@ -34,7 +35,9 @@ def post_ner(
     )
 
 def main():
-    ap = argparse.ArgumentParser(description="Client for spaCy NER REST API")
+    ap = argparse.ArgumentParser(
+        description="Client for the shared spaCy-based NER + promotion REST API"
+    )
     ap.add_argument("--url", default=DEFAULT_URL, help=f"NER endpoint URL (default: {DEFAULT_URL})")
     ap.add_argument("--text", help="Text to analyze. If omitted, reads from stdin.")
     ap.add_argument("--timeout", type=float, default=8.0, help="Request timeout seconds (default: 8.0)")
@@ -61,7 +64,8 @@ def main():
     #   "text": "...",
     #   "model": "en_core_web_sm",
     #   "entities": ["openai","san francisco", ...],
-    #   "queue_size": N,
+    #   "entity_pairs": [{"name": "openai", "label": "ORG"}, ...],
+    #   "promotion": {"enabled": true, "promoted": 2, "ttl_ms": 86400000},
     #   "request_id": "uuid"
     # }
     model = resp.get("model")
