@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-Synchronous NER
+Synchronous NER + promotion service for the community Graph RAG demo.
 
-- Extracts entities with spaCy.
+- Extracts entities with spaCy and normalises them for downstream matching.
+- When ``promote`` is requested, the service copies the supporting subgraph
+  from the authoritative **long-term** Neo4j instance into the **short-term**
+  cache, applying the requested TTL to the relationships it touches.
+- Provides lightweight health reporting so shell scripts can block until the
+  worker is ready.
 
 Endpoints
 ---------
@@ -28,9 +33,9 @@ POST /ner
 Run
 ---
 $ export SPACY_MODEL=en_core_web_sm
-$ pip install flask spacy requests
+$ pip install flask spacy neo4j requests
 $ python -m spacy download en_core_web_sm
-$ python app.py
+$ python ner_service.py
 """
 
 import os

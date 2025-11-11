@@ -137,6 +137,22 @@ After installing spaCy, download the small English model for NER:
 python -m spacy download en_core_web_sm
 ```
 
+### Start the shared NER + promotion service
+
+The community workflows now rely on a single Flask service that both performs
+spaCy NER and copies supporting facts from the **long-term** graph into the
+**short-term** cache when promotion is requested. Launch it in a separate
+terminal before running the demos:
+
+```bash
+python ner_service.py
+```
+
+Environment variables such as `LONG_NEO4J_URI`, `SHORT_NEO4J_URI`,
+`PROMOTION_TTL_MS`, and `PROMOTE_DOCUMENT_NODES` are read by the service. They
+control which databases it talks to, how long promoted relationships stay
+visible, and whether full documents accompany each paragraph in the cache.
+
 ### Set Up the Local LLM (using llama.cpp)
 
 For the question-answering component, you'll need a local LLM. In this guide, we use a 7B parameter model called **neural-chat-7B-v3-3-GGUF** (a quantized GGUF model) as it can run on CPU with llama.cpp and provides a good balance of performance and size. Using this known model ensures the setup works out of the box.
@@ -178,7 +194,7 @@ In this scenario, we will ingest data into the long-term graph and then execute 
    **WARNING:** This will erase any existing nodes and edges in your Neo4j databases (both long-term and short-term) and then reload the BBC dataset afresh. The ingest process will parse the documents, split them into paragraphs, perform NER to extract entities, and merge everything into the **long-term** Neo4j instance. Each relationship is annotated with metadata, including its source document, ingestion timestamp, and a schema version tag for governance purposes. (In an enterprise setting, the ingest script wraps the entire batch in a single transaction and tags it with a batch ID for easier rollback, ensuring an authoritative, idempotent load of knowledge.)
 
 2. **Perform a Simple Query**: Run `python cache_cypher_query.py`
- This script poses a sample question to the system. On the first run, the query will not find any relevant data in the short-term cache (a *cache miss*). The open-source/community implementation will explicitly copy the long-term nodes/edges into the short-term database, adding an `expiration` timestamp to each new relationship to enforce TTL (time-to-live). After this transfer, the relevant data now resides in the high-speed cache. The user's question is answered using only the cached subset of the graph, dramatically improving response time.
+ This script poses a sample question to the system. On the first run, the query will not find any relevant data in the short-term cache (a *cache miss*). The script sends the question to the shared `ner_service.py`, which both extracts entities and copies the long-term subgraph into the short-term database. Every relationship written by the service receives an `expiration` timestamp (driven by `PROMOTION_TTL_MS`) so cached facts naturally age out. Once the service finishes the promotion call, the relevant data resides in the high-speed cache and the question is answered using only the cached subset of the graph, dramatically improving response time.
 
 3. **Clean Up Short-Term Memory/Cache**: Run `python helper/wipe_short_memory.py`
  This is a maintenance step for the demo, which clears the short-term Neo4j instance of all cached data. In a real deployment, cached entries would naturally expire and be evicted. Each cached relationship has an `expiration` property set (e.g., 1 hour), and a background job or scheduled process can periodically remove those expired edges (while leaving the nodes for audit purposes). For now, we manually wipe the short-term database to simulate that the cache has been cleared of stale data.

@@ -26,7 +26,7 @@ Promotion is metadata-only: remove an `expiration` timestamp, and a short-term f
 - **Risk reduction** - grounding answers in a strict knowledge graph slashes the odds of rogue outputs.
 - **Performance at scale** - FlexCache-powered short-term memory keeps hot data close to compute, while SnapMirror protects it.
 
-The sections that follow walk through ingesting data (`ingest.py`), caching queries (`cache_cypher_query.py`), and promoting knowledge (`short_to_long_transfer.py`). Together, they form an open-source version any team can drop into a GitHub repo and run today.
+The sections that follow walk through ingesting data (`ingest.py`), caching queries (`cache_cypher_query.py`), the shared NER + promotion surface (`ner_service.py`), and promoting knowledge (`short_to_long_transfer.py`). Together, they form an open-source version any team can drop into a GitHub repo and run today.
 
 Welcome to graph-based RAG: faster, clearer, and finally governable.
 
@@ -93,13 +93,13 @@ Queries rarely roam the entire knowledge graph. Most conversations cling to a ha
 ### How the promotion cycle works
 
 1. **Detect entities in the user's question.**
- The demo loop runs a spaCy pass over every prompt and collects `(name, label)` pairs. If an entity hasn't been seen in the current session, it becomes a promotion candidate.
+ `cache_cypher_query.py` sends each prompt to the standalone `ner_service.py`. spaCy runs inside that service, returning the `(name, label)` pairs plus metadata about the promotion.
 
 2. **Fetch the full context from long-term memory.**
- A Cypher statement (shown in the reference code as `PROMOTION_QUERY`) retrieves the entity, its parent document, and every paragraph that references it in a single round-trip.
+ Inside the service, the constant `PROMOTION_QUERY` retrieves the entity, its parent document, and every paragraph that references it in a single round-trip to the long-term store.
 
 3. **Copy the sub-graph into short-term memory.**
- The function `promote_entity` merges nodes and relationships into the cache. It also writes an expiration timestamp (`TTL_MS`, default = 1 hour) so stale data quietly disappears tomorrow morning.
+ The service merges nodes and relationships into the cache, applying an expiration timestamp (`PROMOTION_TTL_MS`, default = 24 hours) so stale data quietly disappears tomorrow morning.
 
 4. **Optionally include the whole document.**
  Flip `PROMOTE_DOCUMENT_NODES=0` if you only need paragraphs; leave it on to keep the top-level document for full-text answers.
@@ -120,7 +120,7 @@ Queries rarely roam the entire knowledge graph. Most conversations cling to a ha
 
 | Env var / constant         | What it controls                                                              |
 | -------------------------- | ----------------------------------------------------------------------------- |
-| `TTL_MS` | Lifetime of cached facts (default: one day).                                  |
+| `PROMOTION_TTL_MS` | Lifetime of cached facts (default: one day).                                  |
 | `PROMOTE_DOCUMENT_NODES` | Promote whole documents (`1`) or paragraphs only (`0`).                       |
 | `INTERESTING_ENTITY_TYPES` | Filter which entity labels trigger promotion (PERSON, ORG, etc.).             |
 | High-speed backing store   | NVMe, RAM disk, NetApp **FlexCache**—pick your weapon for micro-second reads. |
@@ -129,7 +129,7 @@ Queries rarely roam the entire knowledge graph. Most conversations cling to a ha
 
 - **Keep TTL realistic.** A 24-hour cache is gold for human chat; an hour is plenty for server monitoring alerts.
 - **Batch promotion when latency matters.** Detect all new entities first, then promote in one transaction to avoid chatty round-trips.
-- **Monitor cache hit rate.** If hits fall below .70 %, widen `TTL_MS` or revisit entity filtering.
+- **Monitor cache hit rate.** If hits fall below .70 %, widen `PROMOTION_TTL_MS` or revisit entity filtering.
 
 ### The payoff
 
