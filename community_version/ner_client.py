@@ -3,7 +3,7 @@ import sys
 import argparse
 from typing import Sequence
 
-from ner_api import call_ner_service, parse_entity_pairs
+from common import call_ner_service, parse_entity_pairs
 
 DEFAULT_URL = "http://127.0.0.1:8000/ner"
 

@@ -1,11 +1,12 @@
-"""Utility helpers for calling the local NER REST service."""
+"""Shared helpers for the community version scripts."""
 
 from __future__ import annotations
 
 import os
-from typing import Mapping, Optional, Sequence, Tuple, List, Dict, Any
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import requests
+from neo4j import Driver, GraphDatabase, Session
 
 NER_SERVICE_URL = os.getenv("NER_SERVICE_URL", "http://127.0.0.1:8000/ner")
 DEFAULT_TIMEOUT = float(os.getenv("NER_SERVICE_TIMEOUT", "8.0"))
@@ -142,3 +143,53 @@ def detect_entities(
         url=url,
     )
     return parse_entity_pairs(payload)
+
+
+def create_indexes(session: Session) -> None:
+    """Ensure the Neo4j indexes used by the demos exist and are online."""
+
+    session.run(
+        """
+        CREATE RANGE INDEX ent_name_label IF NOT EXISTS
+        FOR (e:Entity) ON (e.name, e.label)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX ent_uuid_idx IF NOT EXISTS
+        FOR (e:Entity) ON (e.ent_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX para_uuid_idx IF NOT EXISTS
+        FOR (p:Paragraph) ON (p.para_uuid)
+        """
+    )
+    session.run(
+        """
+        CREATE RANGE INDEX doc_uuid_idx IF NOT EXISTS
+        FOR (d:Document) ON (d.doc_uuid)
+        """
+    )
+    session.run("CALL db.awaitIndexes()")
+
+
+def build_driver(
+    uri_env: str,
+    user_env: str,
+    password_env: str,
+    default_uri: str,
+    *,
+    default_user: str = "neo4j",
+    default_password: str = "neo4j",
+) -> Driver:
+    """Construct a Neo4j driver using environment variables or fall back defaults."""
+
+    return GraphDatabase.driver(
+        os.getenv(uri_env, default_uri),
+        auth=(
+            os.getenv(user_env, default_user),
+            os.getenv(password_env, default_password),
+        ),
+    )

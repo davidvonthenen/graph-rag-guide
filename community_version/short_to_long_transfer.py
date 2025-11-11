@@ -28,33 +28,9 @@ variables so that the same script works in *any* environment without code change
 import os
 from typing import Any, Dict
 
-from neo4j import GraphDatabase, Driver, Transaction
+from neo4j import Driver, Transaction
 
-
-def _driver(uri_env: str, user_env: str, pw_env: str, default_uri: str) -> Driver:
-    """
-    Return a Neo4j driver using environment variables *or* a sensible default.
-
-    Parameters
-    ----------
-    uri_env : str
-        Name of the env var that may contain the bolt URI (e.g. bolt://host:port).
-    user_env : str
-        Name of the env var that may contain the DB username.
-    pw_env   : str
-        Name of the env var that may contain the DB password.
-    default_uri : str
-        Fallback URI when the env var is absent.
-
-    This small helper keeps the driver construction DRY.
-    """
-    return GraphDatabase.driver(
-        os.getenv(uri_env, default_uri),
-        auth=(
-            os.getenv(user_env, "neo4j"),
-            os.getenv(pw_env, "neo4j"),
-        ),
-    )
+from common import build_driver
 
 
 # --------------------------------------------------------------------------- #
@@ -62,13 +38,15 @@ def _driver(uri_env: str, user_env: str, pw_env: str, default_uri: str) -> Drive
 # --------------------------------------------------------------------------- #
 # In typical local demos we simply run two Neo4j instances on adjacent ports.
 # Swap the URIs or credentials via environment variables to point at real clusters.
-SHORT: Driver = _driver(
+SHORT: Driver = build_driver(
     "SHORT_NEO4J_URI", "SHORT_NEO4J_USER", "SHORT_NEO4J_PASSWORD",
     "bolt://localhost:7689",
+    default_password="neo4j",
 )
-LONG: Driver = _driver(
+LONG: Driver = build_driver(
     "LONG_NEO4J_URI", "LONG_NEO4J_USER", "LONG_NEO4J_PASSWORD",
     "bolt://localhost:7688",
+    default_password="neo4j",
 )
 
 # Copy-only documents that were previously marked as validated when this flag is set.

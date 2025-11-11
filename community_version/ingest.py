@@ -38,7 +38,7 @@ import uuid
 from pathlib import Path
 
 from neo4j import GraphDatabase  # swap this import if you use a different driver
-from ner_api import call_ner_service, parse_entity_pairs
+from common import call_ner_service, create_indexes, parse_entity_pairs
 
 ###############################################################################
 # Configuration
@@ -56,42 +56,6 @@ _raw_labels = {
     "WORK_OF_ART", "NORP", "LOC"
 }
 ALLOWED_LABELS = set(_raw_labels) if _raw_labels else None
-
-###############################################################################
-# Index helpers
-###############################################################################
-
-def create_indexes(session) -> None:
-    """
-    Create the indexes that matter for write-time idempotency and
-    read-time speed.  We run each statement in AUTO-COMMIT mode so Neo4j
-    can build them in parallel, then block until all are ONLINE.
-    """
-    session.run(
-        """
-        CREATE RANGE INDEX ent_name_label IF NOT EXISTS
-        FOR (e:Entity) ON (e.name, e.label)
-        """
-    )
-    session.run(
-        """
-        CREATE RANGE INDEX ent_uuid_idx IF NOT EXISTS
-        FOR (e:Entity) ON (e.ent_uuid)
-        """
-    )
-    session.run(
-        """
-        CREATE RANGE INDEX para_uuid_idx IF NOT EXISTS
-        FOR (p:Paragraph) ON (p.para_uuid)
-        """
-    )
-    session.run(
-        """
-        CREATE RANGE INDEX doc_uuid_idx IF NOT EXISTS
-        FOR (d:Document) ON (d.doc_uuid)
-        """
-    )
-    session.run("CALL db.awaitIndexes()")  # wait outside the creation txs
 
 ###############################################################################
 # Cypher write helpers - each function runs inside a single driver tx

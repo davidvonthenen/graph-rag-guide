@@ -30,17 +30,18 @@ Example cron entry (hourly run with basic logging)
               >> /var/log/rag_gc.log
 """
 
-import os
 import time
 from typing import Tuple
 
-from neo4j import GraphDatabase
+from neo4j import Driver
+
+from common import build_driver
 
 ###############################################################################
 # Connection helpers
 ###############################################################################
 
-def connect() -> GraphDatabase.driver:
+def connect() -> Driver:
     """
     Build a Neo4j driver for the short-term memory store.
 
@@ -49,10 +50,13 @@ def connect() -> GraphDatabase.driver:
     neo4j.GraphDatabase.driver
         Ready-to-use driver instance configured from environment variables.
     """
-    uri  = os.getenv("SHORT_NEO4J_URI", "bolt://localhost:7687")
-    user = os.getenv("SHORT_NEO4J_USER", "neo4j")
-    pw   = os.getenv("SHORT_NEO4J_PASSWORD", "neo4jneo4j")
-    return GraphDatabase.driver(uri, auth=(user, pw))
+    return build_driver(
+        "SHORT_NEO4J_URI",
+        "SHORT_NEO4J_USER",
+        "SHORT_NEO4J_PASSWORD",
+        "bolt://localhost:7687",
+        default_password="neo4jneo4j",
+    )
 
 
 ###############################################################################
