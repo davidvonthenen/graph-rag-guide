@@ -45,6 +45,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
+import bm25s
 from llama_cpp import Llama
 from neo4j import GraphDatabase, Session
 from common import NerServiceError, call_ner_service, create_indexes, parse_entity_pairs
@@ -160,6 +161,29 @@ def fetch_paragraphs(
     ]
 
 
+def rerank_paragraphs(paragraphs: List[dict], question: str, top_k: int = 5) -> List[dict]:
+    """Return *top_k* paragraphs re-ranked via BM25 against the user question."""
+    if not paragraphs:
+        return []
+
+    corpus = [p["text"] for p in paragraphs]
+    corpus_tokens = bm25s.tokenize(corpus, stopwords="en")
+
+    retriever = bm25s.BM25()
+    retriever.index(corpus_tokens)
+
+    effective_k = min(top_k, len(corpus))
+    query_tokens = bm25s.tokenize(question, stopwords="en")
+    result_indices, scores = retriever.retrieve(query_tokens, k=effective_k)
+
+    ranked = []
+    for position, para_idx in enumerate(result_indices[0]):
+        para = dict(paragraphs[int(para_idx)])
+        para["bm25_score"] = float(scores[0, position])
+        ranked.append(para)
+    return ranked
+
+
 ##############################################################################
 # LLM answer generation
 ##############################################################################
@@ -220,8 +244,8 @@ def ask(llm: Llama, question: str, short_driver):
     if not paras:
         print("  No relevant context found.")
         return
-    
-    # TODO: we should use an external reranker here to improve LLM input quality. use https://github.com/davidvonthenen/bm25s
+
+    paras = rerank_paragraphs(paras, question, top_k=5)
 
     # Build a compact context block for the LLM
     context_block = ""
