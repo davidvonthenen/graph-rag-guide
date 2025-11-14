@@ -220,6 +220,8 @@ def ask(llm: Llama, question: str, short_driver):
     if not paras:
         print("  No relevant context found.")
         return
+    
+    # TODO: we should use an external reranker here to improve LLM input quality. use https://github.com/davidvonthenen/bm25s
 
     # Build a compact context block for the LLM
     context_block = ""
