@@ -193,10 +193,13 @@ def health():
     }), 200
 
 PROMOTION_QUERY = """
-MATCH (e:Entity {name:$name, label:$label})-[m:MENTIONS]->(t)
-WHERE  m.expiration IS NULL
-   OR  m.expiration = 0
-   OR  m.expiration > $now
+MATCH (e:Entity {name:$name})-[m:MENTIONS]->(t)
+WHERE ($label IS NULL OR e.label = $label)
+  AND (
+        m.expiration IS NULL
+     OR m.expiration = 0
+     OR m.expiration > $now
+  )
 OPTIONAL MATCH (t)-[:PART_OF]->(d:Document)
 WITH e, COALESCE(d, t) AS doc
 OPTIONAL MATCH (doc)<-[:PART_OF]-(p:Paragraph)
@@ -299,6 +302,22 @@ def _calculate_expiration(now_ms: int, ttl_ms: int | None) -> int:
     return now_ms + ttl_ms
 
 
+def _fetch_promotion_records(
+    session: Session, name: str, label: str | None, now_ms: int
+):
+    """Return promotion records, falling back to name-only lookup on label mismatch."""
+
+    normalized_label = label.strip().upper() if label else None
+    params: Dict[str, Any] = {"name": name, "label": normalized_label, "now": now_ms}
+
+    records = list(session.run(PROMOTION_QUERY, **params))
+    if records or normalized_label is None:
+        return records
+
+    params["label"] = None
+    return list(session.run(PROMOTION_QUERY, **params))
+
+
 def _promote_entity(
     name: str,
     label: str,
@@ -307,7 +326,9 @@ def _promote_entity(
     now_ms: int,
     exp_ts: int,
 ) -> None:
-    for rec in long_sess.run(PROMOTION_QUERY, name=name, label=label, now=now_ms):
+    records = _fetch_promotion_records(long_sess, name, label, now_ms)
+
+    for rec in records:
         e_node = rec["e"]
         doc_node = rec["doc"]
         para_nodes = rec["paras"]
