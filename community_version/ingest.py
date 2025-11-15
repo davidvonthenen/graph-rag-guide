@@ -61,23 +61,36 @@ ALLOWED_LABELS = set(_raw_labels) if _raw_labels else None
 # Cypher write helpers - each function runs inside a single driver tx
 ###############################################################################
 
-def merge_entity(tx, ent_uuid: str, name: str, label: str) -> None:
+def merge_entity(tx, ent_uuid: str, name: str, label: str) -> str:
+    """Return the UUID for the (:Entity) identified by ``name``.
+
+    Args:
+        tx: Neo4j transaction context provided by ``session.execute_write``.
+        ent_uuid: Fresh UUID candidate used when the entity is first created.
+        name: Canonical (case-insensitive) entity surface form.
+        label: spaCy entity label (PERSON, ORG, …).
+
+    Returns:
+        The persistent UUID stored on the entity node.  Existing nodes keep
+        their original UUID; new nodes adopt ``ent_uuid``.
     """
-    Ensure exactly one (:Entity) node exists for the given lower-cased name.
-    If the node is new, initialise its UUID, label, and expiration flag.
-    """
-    tx.run(
+
+    record = tx.run(
         """
         MERGE (e:Entity {name: $name})
         ON CREATE SET
             e.ent_uuid   = $ent_uuid,
             e.label      = $label,
             e.expiration = 0
+        SET e.ent_uuid = coalesce(e.ent_uuid, $ent_uuid)
+        RETURN e.ent_uuid AS ent_uuid
         """,
         name=name.lower().strip(),
         ent_uuid=ent_uuid,
         label=label,
-    )
+    ).single()
+
+    return record["ent_uuid"]
 
 def create_document(tx, doc_uuid: str, title: str, content: str, category: str) -> None:
     """
@@ -200,8 +213,9 @@ def ingest_file(session, category: str, path: Path) -> None:
             ]
 
         for name, label in entity_pairs:
-            ent_uuid = str(uuid.uuid4())
-            session.execute_write(merge_entity, ent_uuid, name, label)
+            ent_uuid = session.execute_write(
+                merge_entity, str(uuid.uuid4()), name, label
+            )
             session.execute_write(link_mentions, ent_uuid, doc_uuid, para_uuid)
 
 def main() -> None:

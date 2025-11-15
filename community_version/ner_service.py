@@ -207,20 +207,32 @@ RETURN e, doc, paras
 
 def _merge_entity(
     sess: Session, ent_uuid: str, name: str, label: str, exp_ts: int
-) -> None:
-    sess.run(
+) -> str:
+    """Upsert an Entity node inside the short-term cache.
+
+    Returns the UUID actually stored on the entity so callers can reuse it for
+    follow-on relationships, even if the source node was missing a UUID.
+    """
+
+    normalized_uuid = ent_uuid or str(uuid.uuid4())
+    record = sess.run(
         """
         MERGE (e:Entity {ent_uuid:$uuid})
         ON CREATE SET e.name=$name,
                       e.label=$label,
                       e.expiration=$exp
-        SET e.expiration=$exp
+        SET e.expiration=$exp,
+            e.name = coalesce(e.name, $name),
+            e.label = coalesce(e.label, $label)
+        RETURN e.ent_uuid AS ent_uuid
         """,
-        uuid=ent_uuid,
+        uuid=normalized_uuid,
         name=name,
         label=label,
         exp=exp_ts,
-    )
+    ).single()
+
+    return record["ent_uuid"]
 
 
 def _merge_paragraph(sess: Session, para_node, exp_ts: int) -> None:
@@ -312,13 +324,15 @@ def _promote_entity(
         doc_node = rec["doc"]
         para_nodes = rec["paras"]
 
-        _merge_entity(short_sess, e_node["ent_uuid"], e_node["name"], e_node["label"], exp_ts)
+        promoted_uuid = _merge_entity(
+            short_sess, e_node["ent_uuid"], e_node["name"], e_node["label"], exp_ts
+        )
 
         if doc_node and PROMOTE_DOCUMENT_NODES:
             _merge_document(short_sess, doc_node, exp_ts)
             _merge_mentions(
                 short_sess,
-                e_node["ent_uuid"],
+                promoted_uuid,
                 "Document",
                 "doc_uuid",
                 _node_get(doc_node, "doc_uuid"),
@@ -334,7 +348,7 @@ def _promote_entity(
             )
             _merge_mentions(
                 short_sess,
-                e_node["ent_uuid"],
+                promoted_uuid,
                 "Paragraph",
                 "para_uuid",
                 _node_get(p, "para_uuid"),
