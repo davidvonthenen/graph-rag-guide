@@ -41,6 +41,7 @@ $ python ner_service.py
 import os
 import time
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Set, Tuple
 
@@ -108,6 +109,52 @@ DEFAULT_INTERESTING_ENTITY_TYPES = {
     "LOC",
     "FAC",
 }
+
+
+@dataclass
+class PromotionAudit:
+    """Records what was copied into the cache for a single entity promotion."""
+
+    entity_uuid: str | None = None
+    entity_name: str | None = None
+    entity_label: str | None = None
+    documents: Set[str] = field(default_factory=set)
+    paragraphs: Set[str] = field(default_factory=set)
+    doc_mentions: Set[str] = field(default_factory=set)
+    para_mentions: Set[str] = field(default_factory=set)
+    part_of_edges: Set[Tuple[str, str]] = field(default_factory=set)
+    cleared_mentions: bool = False
+    skipped_reason: str | None = None
+
+
+def _log_promotion_audit(audit: PromotionAudit) -> None:
+    """Emit a concise, human-readable summary of a promotion audit."""
+
+    if not audit.entity_uuid:
+        reason = audit.skipped_reason or "unknown"
+        print(f"[promotion audit] skipped entity promotion: {reason}")
+        return
+
+    doc_count = len(audit.documents)
+    para_count = len(audit.paragraphs)
+    doc_mentions = len(audit.doc_mentions)
+    para_mentions = len(audit.para_mentions)
+    part_of = len(audit.part_of_edges)
+
+    print(
+        "[promotion audit] entity=%s label=%s docs=%d paras=%d doc_mentions=%d "
+        "para_mentions=%d part_of_edges=%d cleared_mentions=%s"
+        % (
+            audit.entity_name or audit.entity_uuid,
+            audit.entity_label or "?",
+            doc_count,
+            para_count,
+            doc_mentions,
+            para_mentions,
+            part_of,
+            audit.cleared_mentions,
+        )
+    )
 
 # ---------------------------
 # spaCy load
@@ -326,21 +373,32 @@ def _promote_entity(
     short_sess: Session,
     now_ms: int,
     exp_ts: int,
-) -> None:
+) -> PromotionAudit:
+    audit = PromotionAudit()
+
     records = list(long_sess.run(PROMOTION_QUERY, name=name, label=label, now=now_ms))
     if not records:
-        return
+        audit.skipped_reason = "no_records"
+        _log_promotion_audit(audit)
+        return audit
 
     primary = records[0]["e"]
     ent_uuid = _node_get(primary, "ent_uuid")
     if not ent_uuid:
-        return
+        audit.skipped_reason = "missing_ent_uuid"
+        _log_promotion_audit(audit)
+        return audit
 
     ent_name = _node_get(primary, "name", name)
     ent_label = _node_get(primary, "label", label)
 
+    audit.entity_uuid = ent_uuid
+    audit.entity_name = ent_name
+    audit.entity_label = ent_label
+
     _merge_entity(short_sess, ent_uuid, ent_name, ent_label, exp_ts)
     _clear_mentions(short_sess, ent_uuid, include_documents=PROMOTE_DOCUMENT_NODES)
+    audit.cleared_mentions = True
 
     seen_docs: Set[str] = set()
     seen_doc_mentions: Set[str] = set()
@@ -358,6 +416,7 @@ def _promote_entity(
                 if doc_uuid not in seen_docs:
                     _merge_document(short_sess, doc_node, exp_ts)
                     seen_docs.add(doc_uuid)
+                    audit.documents.add(doc_uuid)
                 if doc_uuid not in seen_doc_mentions:
                     _merge_mentions(
                         short_sess,
@@ -368,6 +427,7 @@ def _promote_entity(
                         exp_ts,
                     )
                     seen_doc_mentions.add(doc_uuid)
+                    audit.doc_mentions.add(doc_uuid)
 
         for para_node in para_nodes:
             para_uuid = _node_get(para_node, "para_uuid")
@@ -377,12 +437,14 @@ def _promote_entity(
             if para_uuid not in seen_paragraphs:
                 _merge_paragraph(short_sess, para_node, exp_ts)
                 seen_paragraphs.add(para_uuid)
+                audit.paragraphs.add(para_uuid)
 
             if PROMOTE_DOCUMENT_NODES:
                 doc_uuid = _node_get(para_node, "doc_uuid")
                 if doc_uuid and (para_uuid, doc_uuid) not in part_of_edges:
                     _merge_part_of(short_sess, para_uuid, doc_uuid)
                     part_of_edges.add((para_uuid, doc_uuid))
+                    audit.part_of_edges.add((para_uuid, doc_uuid))
 
             if para_uuid not in seen_para_mentions:
                 _merge_mentions(
@@ -394,6 +456,10 @@ def _promote_entity(
                     exp_ts,
                 )
                 seen_para_mentions.add(para_uuid)
+                audit.para_mentions.add(para_uuid)
+
+    _log_promotion_audit(audit)
+    return audit
 
 
 def _promote_entities(entity_pairs: List[Tuple[str, str]], ttl_ms: int | None) -> int:

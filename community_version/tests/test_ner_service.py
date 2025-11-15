@@ -40,8 +40,9 @@ def test_promote_entity_relinks_documents_and_paragraphs():
         patch.object(ner_service, "_merge_paragraph") as mock_merge_para,
         patch.object(ner_service, "_merge_part_of") as mock_merge_part,
         patch.object(ner_service, "_merge_mentions") as mock_merge_mentions,
+        patch.object(ner_service, "_log_promotion_audit") as mock_log,
     ):
-        ner_service._promote_entity(
+        audit = ner_service._promote_entity(
             name="google",
             label="ORG",
             long_sess=long_session,
@@ -52,6 +53,7 @@ def test_promote_entity_relinks_documents_and_paragraphs():
 
     mock_merge_entity.assert_called_once_with(short_session, "e1", "google", "ORG", 500)
     mock_clear.assert_called_once_with(short_session, "e1", include_documents=True)
+    mock_log.assert_called_once()
 
     promoted_docs = {c.args[1]["doc_uuid"] for c in mock_merge_doc.call_args_list}
     assert promoted_docs == {"doc1", "doc2"}
@@ -67,6 +69,14 @@ def test_promote_entity_relinks_documents_and_paragraphs():
     assert doc_mentions == {"doc1", "doc2"}
     assert para_mentions == {"para1", "para2"}
 
+    assert audit.entity_uuid == "e1"
+    assert audit.documents == {"doc1", "doc2"}
+    assert audit.paragraphs == {"para1", "para2"}
+    assert audit.doc_mentions == {"doc1", "doc2"}
+    assert audit.para_mentions == {"para1", "para2"}
+    assert audit.part_of_edges == {("para1", "doc1"), ("para2", "doc2")}
+    assert audit.cleared_mentions is True
+
 
 def test_promote_entity_skips_document_links_when_disabled():
     long_session = Mock()
@@ -81,8 +91,9 @@ def test_promote_entity_skips_document_links_when_disabled():
         patch.object(ner_service, "_merge_paragraph") as mock_merge_para,
         patch.object(ner_service, "_merge_part_of") as mock_merge_part,
         patch.object(ner_service, "_merge_mentions") as mock_merge_mentions,
+        patch.object(ner_service, "_log_promotion_audit") as mock_log,
     ):
-        ner_service._promote_entity(
+        audit = ner_service._promote_entity(
             name="google",
             label="ORG",
             long_sess=long_session,
@@ -103,3 +114,10 @@ def test_promote_entity_skips_document_links_when_disabled():
 
     promoted_paras = {c.args[1]["para_uuid"] for c in mock_merge_para.call_args_list}
     assert promoted_paras == {"para3"}
+    mock_log.assert_called_once()
+
+    assert audit.documents == set()
+    assert audit.paragraphs == {"para3"}
+    assert audit.doc_mentions == set()
+    assert audit.para_mentions == {"para3"}
+    assert audit.part_of_edges == set()
