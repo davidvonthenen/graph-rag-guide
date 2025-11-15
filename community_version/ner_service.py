@@ -198,11 +198,15 @@ WHERE  m.expiration IS NULL
    OR  m.expiration = 0
    OR  m.expiration > $now
 OPTIONAL MATCH (t)-[:PART_OF]->(d:Document)
+WITH e,
+     t,
+     COALESCE(d, t) AS doc_node
 WITH e { .ent_uuid, .name, .label } AS entity,
-     CASE WHEN d IS NULL THEN t { .doc_uuid, .title, .content, .category }
-          ELSE d { .doc_uuid, .title, .content, .category }
+     doc_node,
+     CASE WHEN doc_node IS NULL THEN NULL
+          ELSE doc_node { .doc_uuid, .title, .content, .category }
      END AS doc
-OPTIONAL MATCH (doc)<-[:PART_OF]-(p:Paragraph)
+OPTIONAL MATCH (doc_node)<-[:PART_OF]-(p:Paragraph)
 WITH entity,
      doc,
      collect(DISTINCT p { .para_uuid, .text, .index, .doc_uuid }) AS paras
