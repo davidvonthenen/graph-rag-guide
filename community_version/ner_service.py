@@ -42,7 +42,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List, Tuple, Dict, Any
+from typing import Any, Dict, List, Set, Tuple
 
 from flask import Flask, jsonify, request
 from functools import lru_cache
@@ -193,13 +193,10 @@ def health():
     }), 200
 
 PROMOTION_QUERY = """
-MATCH (e:Entity {name:$name})-[m:MENTIONS]->(t)
-WHERE ($label IS NULL OR e.label = $label)
-  AND (
-        m.expiration IS NULL
-     OR m.expiration = 0
-     OR m.expiration > $now
-  )
+MATCH (e:Entity {name:$name, label:$label})-[m:MENTIONS]->(t)
+WHERE  m.expiration IS NULL
+   OR  m.expiration = 0
+   OR  m.expiration > $now
 OPTIONAL MATCH (t)-[:PART_OF]->(d:Document)
 WITH e, COALESCE(d, t) AS doc
 OPTIONAL MATCH (doc)<-[:PART_OF]-(p:Paragraph)
@@ -294,28 +291,32 @@ def _merge_mentions(
     )
 
 
+def _clear_mentions(sess: Session, ent_uuid: str, include_documents: bool) -> None:
+    if include_documents:
+        sess.run(
+            """
+            MATCH (e:Entity {ent_uuid:$uuid})-[m:MENTIONS]->(t)
+            WHERE t:Paragraph OR t:Document
+            DELETE m
+            """,
+            uuid=ent_uuid,
+        )
+    else:
+        sess.run(
+            """
+            MATCH (e:Entity {ent_uuid:$uuid})-[m:MENTIONS]->(t:Paragraph)
+            DELETE m
+            """,
+            uuid=ent_uuid,
+        )
+
+
 def _calculate_expiration(now_ms: int, ttl_ms: int | None) -> int:
     if ttl_ms is None:
         ttl_ms = DEFAULT_PROMOTION_TTL_MS
     if ttl_ms <= 0:
         return 0
     return now_ms + ttl_ms
-
-
-def _fetch_promotion_records(
-    session: Session, name: str, label: str | None, now_ms: int
-):
-    """Return promotion records, falling back to name-only lookup on label mismatch."""
-
-    normalized_label = label.strip().upper() if label else None
-    params: Dict[str, Any] = {"name": name, "label": normalized_label, "now": now_ms}
-
-    records = list(session.run(PROMOTION_QUERY, **params))
-    if records or normalized_label is None:
-        return records
-
-    params["label"] = None
-    return list(session.run(PROMOTION_QUERY, **params))
 
 
 def _promote_entity(
@@ -326,41 +327,73 @@ def _promote_entity(
     now_ms: int,
     exp_ts: int,
 ) -> None:
-    records = _fetch_promotion_records(long_sess, name, label, now_ms)
+    records = list(long_sess.run(PROMOTION_QUERY, name=name, label=label, now=now_ms))
+    if not records:
+        return
+
+    primary = records[0]["e"]
+    ent_uuid = _node_get(primary, "ent_uuid")
+    if not ent_uuid:
+        return
+
+    ent_name = _node_get(primary, "name", name)
+    ent_label = _node_get(primary, "label", label)
+
+    _merge_entity(short_sess, ent_uuid, ent_name, ent_label, exp_ts)
+    _clear_mentions(short_sess, ent_uuid, include_documents=PROMOTE_DOCUMENT_NODES)
+
+    seen_docs: Set[str] = set()
+    seen_doc_mentions: Set[str] = set()
+    seen_paragraphs: Set[str] = set()
+    seen_para_mentions: Set[str] = set()
+    part_of_edges: Set[Tuple[str, str]] = set()
 
     for rec in records:
-        e_node = rec["e"]
         doc_node = rec["doc"]
-        para_nodes = rec["paras"]
+        para_nodes = rec["paras"] or []
 
-        _merge_entity(short_sess, e_node["ent_uuid"], e_node["name"], e_node["label"], exp_ts)
+        if PROMOTE_DOCUMENT_NODES and doc_node:
+            doc_uuid = _node_get(doc_node, "doc_uuid")
+            if doc_uuid:
+                if doc_uuid not in seen_docs:
+                    _merge_document(short_sess, doc_node, exp_ts)
+                    seen_docs.add(doc_uuid)
+                if doc_uuid not in seen_doc_mentions:
+                    _merge_mentions(
+                        short_sess,
+                        ent_uuid,
+                        "Document",
+                        "doc_uuid",
+                        doc_uuid,
+                        exp_ts,
+                    )
+                    seen_doc_mentions.add(doc_uuid)
 
-        if doc_node and PROMOTE_DOCUMENT_NODES:
-            _merge_document(short_sess, doc_node, exp_ts)
-            _merge_mentions(
-                short_sess,
-                e_node["ent_uuid"],
-                "Document",
-                "doc_uuid",
-                _node_get(doc_node, "doc_uuid"),
-                exp_ts,
-            )
+        for para_node in para_nodes:
+            para_uuid = _node_get(para_node, "para_uuid")
+            if not para_uuid:
+                continue
 
-        for p in para_nodes:
-            _merge_paragraph(short_sess, p, exp_ts)
-            _merge_part_of(
-                short_sess,
-                _node_get(p, "para_uuid"),
-                _node_get(p, "doc_uuid"),
-            )
-            _merge_mentions(
-                short_sess,
-                e_node["ent_uuid"],
-                "Paragraph",
-                "para_uuid",
-                _node_get(p, "para_uuid"),
-                exp_ts,
-            )
+            if para_uuid not in seen_paragraphs:
+                _merge_paragraph(short_sess, para_node, exp_ts)
+                seen_paragraphs.add(para_uuid)
+
+            if PROMOTE_DOCUMENT_NODES:
+                doc_uuid = _node_get(para_node, "doc_uuid")
+                if doc_uuid and (para_uuid, doc_uuid) not in part_of_edges:
+                    _merge_part_of(short_sess, para_uuid, doc_uuid)
+                    part_of_edges.add((para_uuid, doc_uuid))
+
+            if para_uuid not in seen_para_mentions:
+                _merge_mentions(
+                    short_sess,
+                    ent_uuid,
+                    "Paragraph",
+                    "para_uuid",
+                    para_uuid,
+                    exp_ts,
+                )
+                seen_para_mentions.add(para_uuid)
 
 
 def _promote_entities(entity_pairs: List[Tuple[str, str]], ttl_ms: int | None) -> int:
