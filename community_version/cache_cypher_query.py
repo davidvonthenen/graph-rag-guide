@@ -45,8 +45,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
+import bm25s
+import Stemmer
 from llama_cpp import Llama
 from neo4j import GraphDatabase, Session
+
 from common import NerServiceError, call_ner_service, create_indexes, parse_entity_pairs
 
 ##############################################################################
@@ -82,6 +85,10 @@ INTERESTING_ENTITY_TYPES = {
 }
 
 TTL_MS = 60 * 60 * 1000  # one hour in milliseconds
+
+# Re-ranker configuration
+BM25_TOP_K = 10
+_STEMMER = Stemmer.Stemmer("english")
 
 # Helpers - LLM
 ##############################################################################
@@ -160,6 +167,40 @@ def fetch_paragraphs(
     ]
 
 
+def rerank_paragraphs(question: str, paragraphs: List[dict], top_k: int = BM25_TOP_K) -> List[dict]:
+    """Re-rank cached paragraphs with BM25-S and return the top ``top_k`` items.
+
+    Args:
+        question: The natural-language query supplied by the user.
+        paragraphs: Raw paragraph dictionaries retrieved from Neo4j.
+        top_k: Number of paragraphs to return after BM25 ranking.
+
+    Returns:
+        The highest-scoring ``top_k`` paragraphs with an added ``bm25_score`` field.
+    """
+
+    if not paragraphs or not question.strip():
+        return []
+
+    corpus = [p.get("text", "") for p in paragraphs]
+    corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_STEMMER)
+
+    retriever = bm25s.BM25()
+    retriever.index(corpus_tokens)
+
+    query_tokens = bm25s.tokenize(question, stemmer=_STEMMER)
+    k = min(top_k, len(corpus))
+    doc_ids, scores = retriever.retrieve(query_tokens, k=k)
+
+    reranked = []
+    for doc_id, score in zip(doc_ids[0], scores[0]):
+        para = paragraphs[int(doc_id)].copy()
+        para["bm25_score"] = float(score)
+        reranked.append(para)
+
+    return reranked
+
+
 ##############################################################################
 # LLM answer generation
 ##############################################################################
@@ -186,7 +227,7 @@ def generate_answer(llm: Llama, question: str, context: str) -> str:
 ##############################################################################
 
 
-def ask(llm: Llama, question: str, short_driver):
+def ask(llm: Llama, question: str, short_driver, top_k: int = BM25_TOP_K) -> None:
     """
     End-to-end cycle for a single question:
       1. NER → entity extraction via the REST service (which also promotes data)
@@ -215,21 +256,24 @@ def ask(llm: Llama, question: str, short_driver):
 
     # Retrieve paragraphs after promotion
     with short_driver.session() as sess:
-        paras = fetch_paragraphs(sess, ent_pairs, top_k=100)
+        paras = fetch_paragraphs(sess, ent_pairs, top_k=(top_k * 10))
 
     if not paras:
         print("  No relevant context found.")
         return
-    
-    # TODO: we should use an external reranker here to improve LLM input quality. use https://github.com/davidvonthenen/bm25s
+
+    reranked_paras = rerank_paragraphs(question, paras, top_k=top_k)
+    if not reranked_paras:
+        print("  Unable to rerank retrieved context.")
+        return
 
     # Build a compact context block for the LLM
     context_block = ""
-    for p in paras:
+    for p in reranked_paras:
         snippet = p["text"][:350].replace("\n", " ")
         context_block += (
             f"\n---\nDoc: {p['title']} | Para #{p['idx']} "
-            f"| Matches: {p['matchingEntities']}\n{snippet}…"
+            f"| Matches: {p['matchingEntities']} | BM25: {p.get('bm25_score', 0):.2f}\n{snippet}…"
         )
 
     answer = generate_answer(llm, question, context_block)
@@ -246,12 +290,14 @@ def main():
     # First question
     start_time = time.time()
     ask(llm, "Tell me about the connection between Ernie Wise and Vodafone.", short_driver)
+    # ask(llm, "How much did Google purchase Windsurf for?", short_driver)
     end_time = time.time()
     print(f"\nQuery took {end_time - start_time:.2f} seconds.")
 
     # Second question (should hit warm cache)
     start_time = time.time()
     ask(llm, "Tell me something about the personal life of Ernie Wise?", short_driver)
+    # ask(llm, "How much did OpenAI purchase Windsurf for?", short_driver)
     end_time = time.time()
     print(f"\nQuery took {end_time - start_time:.2f} seconds.")
 
