@@ -223,10 +223,9 @@ SET e.expiration=$exp,
     e.label = coalesce(e.label, $entity.label)
 WITH e
 CALL {
-    WITH e, $documents AS documents, $exp AS exp, $promote_documents AS promote_documents
-    UNWIND CASE WHEN promote_documents AND size(documents) > 0 THEN documents ELSE [NULL] END AS doc
-        WITH e, doc, exp
-        WHERE doc IS NOT NULL
+    WITH e
+    WITH e, CASE WHEN $promote_documents THEN coalesce($documents, []) ELSE [] END AS docs
+    UNWIND docs AS doc
         MERGE (d:Document {doc_uuid:doc.doc_uuid})
         ON CREATE SET d.title=doc.title,
                       d.content=doc.content,
@@ -239,10 +238,8 @@ CALL {
 }
 WITH e
 CALL {
-    WITH e, $paragraphs AS paragraphs, $exp AS exp
-    UNWIND CASE WHEN size(paragraphs) > 0 THEN paragraphs ELSE [NULL] END AS para
-        WITH e, para, exp
-        WHERE para IS NOT NULL
+    WITH e
+    UNWIND coalesce($paragraphs, []) AS para
         MERGE (p:Paragraph {para_uuid:para.para_uuid})
         ON CREATE SET p.text=para.text,
                       p.index=para.index,
