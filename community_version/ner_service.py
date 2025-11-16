@@ -17,8 +17,8 @@ POST /ner
         {
           "text": "Your input text...",
           "labels": ["PERSON","ORG","GPE"],   # optional override of allowed labels
-          "promote": true,                      # optional, defaults to true
-          "ttl_ms": 86400000                    # optional TTL override for promotion
+          "promote": true,                    # optional, defaults to true
+          "ttl_ms": 86400000                  # optional TTL override for promotion
         }
     Response (JSON):
         {
@@ -42,7 +42,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 from flask import Flask, jsonify, request
 from functools import lru_cache
@@ -109,6 +109,9 @@ DEFAULT_INTERESTING_ENTITY_TYPES = {
     "FAC",
 }
 
+# Deterministic namespace for UUIDv5 when the long-term node lacks ent_uuid
+_UUID5_NAMESPACE = uuid.UUID("b0b00000-0000-4000-8000-0000000000e1")
+
 # ---------------------------
 # spaCy load
 # ---------------------------
@@ -117,13 +120,11 @@ DEFAULT_INTERESTING_ENTITY_TYPES = {
 def load_spacy():
     return spacy.load(SPACY_MODEL)
 
-
 @lru_cache(maxsize=1)
 def _long_driver():
     return GraphDatabase.driver(
         LONG_NEO4J_URI, auth=(LONG_NEO4J_USER, LONG_NEO4J_PASSWORD)
     )
-
 
 @lru_cache(maxsize=1)
 def _short_driver():
@@ -131,9 +132,7 @@ def _short_driver():
         SHORT_NEO4J_URI, auth=(SHORT_NEO4J_USER, SHORT_NEO4J_PASSWORD)
     )
 
-
 nlp = load_spacy()
-
 
 def _node_get(node, key, default=None):
     if isinstance(node, dict):
@@ -141,6 +140,12 @@ def _node_get(node, key, default=None):
     try:
         return node[key]
     except (KeyError, TypeError):
+        return default
+
+def _rec_get(rec, key, default=None):
+    try:
+        return rec[key]
+    except KeyError:
         return default
 
 # ---------------------------
@@ -157,17 +162,16 @@ def _extract_entities(
         if ent.label_ in allowed_labels and len(ent.text.strip()) >= 3
     ]
 
-def _extract_normalized_entities(nlp_obj: spacy.Language, text: str, allowed_labels: set[str]) -> List[str]:
+def _extract_normalized_entities(
+    nlp_obj: spacy.Language, text: str, allowed_labels: set[str]
+) -> List[str]:
     ent_pairs = _extract_entities(nlp_obj, text, allowed_labels)
-
-    # Normalize: lowercase, dedupe while preserving order
     seen = set()
     normalized: List[str] = []
     for name, _label in ent_pairs:
         if name not in seen:
             seen.add(name)
             normalized.append(name)
-
     return normalized
 
 # ---------------------------
@@ -175,10 +179,6 @@ def _extract_normalized_entities(nlp_obj: spacy.Language, text: str, allowed_lab
 # ---------------------------
 
 app = Flask(__name__)
-
-# @app.before_first_request
-# def _startup():
-#     _ensure_worker_started()
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -192,116 +192,143 @@ def health():
         },
     }), 200
 
+# ---- Long-term read (projects compact maps, one row per doc target) ----
 PROMOTION_QUERY = """
 MATCH (e:Entity {name:$name, label:$label})-[m:MENTIONS]->(t)
 WHERE  m.expiration IS NULL
    OR  m.expiration = 0
    OR  m.expiration > $now
 OPTIONAL MATCH (t)-[:PART_OF]->(d:Document)
-WITH e, COALESCE(d, t) AS doc
-OPTIONAL MATCH (doc)<-[:PART_OF]-(p:Paragraph)
-WITH e, doc, collect(DISTINCT p) AS paras
-RETURN e, doc, paras
+WITH e,
+     t,
+     COALESCE(d, t) AS doc_node
+WITH e { .ent_uuid, .name, .label } AS entity,
+     doc_node,
+     CASE WHEN doc_node IS NULL THEN NULL
+          ELSE doc_node { .doc_uuid, .title, .content, .category }
+     END AS doc
+OPTIONAL MATCH (doc_node)<-[:PART_OF]-(p:Paragraph)
+WITH entity,
+     doc,
+     collect(DISTINCT p { .para_uuid, .text, .index, .doc_uuid }) AS paras
+RETURN entity, doc, paras
 """
 
+# ---- Short-term write (single roundtrip, no importing-WITH violations) ----
+CACHE_PROMOTION_QUERY = """
+MERGE (e:Entity {ent_uuid:$entity.ent_uuid})
+ON CREATE SET e.name=$entity.name,
+              e.label=$entity.label,
+              e.expiration=$exp
+SET e.expiration=$exp,
+    e.name = coalesce(e.name, $entity.name),
+    e.label = coalesce(e.label, $entity.label)
+WITH e
+CALL {
+    WITH e
+    UNWIND (CASE WHEN $promote_documents THEN coalesce($documents, []) ELSE [] END) AS doc
+    WITH e, doc
+    WHERE doc.doc_uuid IS NOT NULL
+    MERGE (d:Document {doc_uuid:doc.doc_uuid})
+    ON CREATE SET d.title=doc.title,
+                  d.content=doc.content,
+                  d.category=doc.category,
+                  d.expiration=$exp
+    SET d.expiration=$exp
+    MERGE (e)-[md:MENTIONS]->(d)
+    SET md.expiration=$exp
+    RETURN count(*) AS _
+}
+WITH e
+CALL {
+    WITH e
+    UNWIND coalesce($paragraphs, []) AS para
+    WITH e, para
+    WHERE para.para_uuid IS NOT NULL
+    MERGE (p:Paragraph {para_uuid:para.para_uuid})
+    ON CREATE SET p.text=para.text,
+                  p.index=para.index,
+                  p.doc_uuid=para.doc_uuid,
+                  p.expiration=$exp
+    SET p.expiration=$exp
+    WITH e, para, p
+    OPTIONAL MATCH (d:Document {doc_uuid:para.doc_uuid})
+    WITH e, p, d
+    WHERE d IS NOT NULL
+    MERGE (p)-[:PART_OF]->(d)
+    WITH e, p
+    MERGE (e)-[mp:MENTIONS]->(p)
+    SET mp.expiration=$exp
+    RETURN count(*) AS _
+}
+RETURN e.ent_uuid AS ent_uuid
+"""
 
-def _merge_entity(
-    sess: Session, ent_uuid: str, name: str, label: str, exp_ts: int
-) -> str:
-    """Upsert an Entity node inside the short-term cache.
+def _deterministic_ent_uuid(name: str, label: str, ent_uuid: Optional[str]) -> str:
+    if ent_uuid:
+        return ent_uuid
+    seed = f"{label.strip().upper()}|{name.strip().lower()}"
+    return str(uuid.uuid5(_UUID5_NAMESPACE, seed))
 
-    Returns the UUID actually stored on the entity so callers can reuse it for
-    follow-on relationships, even if the source node was missing a UUID.
-    """
+def _normalize_entity(node: Dict[str, Any] | None) -> Optional[Dict[str, Any]]:
+    if not node:
+        return None
+    name = _node_get(node, "name")
+    label = _node_get(node, "label")
+    if not name or not label:
+        return None
+    ent_uuid = _deterministic_ent_uuid(name, label, _node_get(node, "ent_uuid"))
+    return {"ent_uuid": ent_uuid, "name": name, "label": label}
 
-    normalized_uuid = ent_uuid or str(uuid.uuid4())
-    record = sess.run(
-        """
-        MERGE (e:Entity {ent_uuid:$uuid})
-        ON CREATE SET e.name=$name,
-                      e.label=$label,
-                      e.expiration=$exp
-        SET e.expiration=$exp,
-            e.name = coalesce(e.name, $name),
-            e.label = coalesce(e.label, $label)
-        RETURN e.ent_uuid AS ent_uuid
-        """,
-        uuid=normalized_uuid,
-        name=name,
-        label=label,
-        exp=exp_ts,
-    ).single()
+def _normalize_document(node: Dict[str, Any] | None) -> Optional[Dict[str, Any]]:
+    if not node:
+        return None
+    doc_uuid = _node_get(node, "doc_uuid")
+    if not doc_uuid:
+        return None
+    return {
+        "doc_uuid": doc_uuid,
+        "title": _node_get(node, "title", ""),
+        "content": _node_get(node, "content", ""),
+        "category": _node_get(node, "category", ""),
+    }
 
-    return record["ent_uuid"]
+def _normalize_paragraphs(paragraph_nodes: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    if not paragraph_nodes:
+        return normalized
+    for node in paragraph_nodes:
+        if not node:
+            continue
+        para_uuid = _node_get(node, "para_uuid")
+        if not para_uuid:
+            continue  # avoid MERGE with NULL key
+        normalized.append(
+            {
+                "para_uuid": para_uuid,
+                "text": _node_get(node, "text", ""),
+                "index": _node_get(node, "index", 0),
+                "doc_uuid": _node_get(node, "doc_uuid"),
+            }
+        )
+    return normalized
 
-
-def _merge_paragraph(sess: Session, para_node, exp_ts: int) -> None:
-    sess.run(
-        """
-        MERGE (p:Paragraph {para_uuid:$uuid})
-        ON CREATE SET p.text=$text,
-                      p.index=$idx,
-                      p.doc_uuid=$doc_uuid,
-                      p.expiration=$exp
-        SET p.expiration=$exp
-        """,
-        uuid=_node_get(para_node, "para_uuid"),
-        text=_node_get(para_node, "text", ""),
-        idx=_node_get(para_node, "index", 0),
-        doc_uuid=_node_get(para_node, "doc_uuid"),
-        exp=exp_ts,
-    )
-
-
-def _merge_document(sess: Session, doc_node, exp_ts: int) -> None:
-    sess.run(
-        """
-        MERGE (d:Document {doc_uuid:$uuid})
-        ON CREATE SET d.title=$title,
-                      d.content=$content,
-                      d.category=$category,
-                      d.expiration=$exp
-        SET d.expiration=$exp
-        """,
-        uuid=_node_get(doc_node, "doc_uuid"),
-        title=_node_get(doc_node, "title", ""),
-        content=_node_get(doc_node, "content", ""),
-        category=_node_get(doc_node, "category", ""),
-        exp=exp_ts,
-    )
-
-
-def _merge_part_of(sess: Session, para_uuid: str, doc_uuid: str) -> None:
-    sess.run(
-        """
-        MATCH (p:Paragraph {para_uuid:$p}), (d:Document {doc_uuid:$d})
-        MERGE (p)-[:PART_OF]->(d)
-        """,
-        p=para_uuid,
-        d=doc_uuid,
-    )
-
-
-def _merge_mentions(
+def _write_promotion_to_cache(
     sess: Session,
-    ent_uuid: str,
-    target_label: str,
-    target_id_name: str,
-    target_id_value: str,
+    entity: Dict[str, Any],
+    documents: List[Dict[str, Any]],
+    paragraphs: List[Dict[str, Any]],
     exp_ts: int,
 ) -> None:
-    sess.run(
-        f"""
-        MATCH (e:Entity {{ent_uuid:$e_uuid}}),
-              (t:{target_label} {{{target_id_name}:$tid}})
-        MERGE (e)-[m:MENTIONS]->(t)
-        SET   m.expiration=$exp
-        """,
-        e_uuid=ent_uuid,
-        tid=target_id_value,
+    result = sess.run(
+        CACHE_PROMOTION_QUERY,
+        entity=entity,
+        documents=documents,
+        paragraphs=paragraphs,
         exp=exp_ts,
+        promote_documents=PROMOTE_DOCUMENT_NODES,
     )
-
+    result.consume()  # surface server-side errors now
 
 def _calculate_expiration(now_ms: int, ttl_ms: int | None) -> int:
     if ttl_ms is None:
@@ -310,7 +337,6 @@ def _calculate_expiration(now_ms: int, ttl_ms: int | None) -> int:
         return 0
     return now_ms + ttl_ms
 
-
 def _promote_entity(
     name: str,
     label: str,
@@ -318,43 +344,36 @@ def _promote_entity(
     short_sess: Session,
     now_ms: int,
     exp_ts: int,
-) -> None:
-    for rec in long_sess.run(PROMOTION_QUERY, name=name, label=label, now=now_ms):
-        e_node = rec["e"]
-        doc_node = rec["doc"]
-        para_nodes = rec["paras"]
+) -> bool:
+    records = list(long_sess.run(PROMOTION_QUERY, name=name, label=label, now=now_ms))
+    if not records:
+        return False
 
-        promoted_uuid = _merge_entity(
-            short_sess, e_node["ent_uuid"], e_node["name"], e_node["label"], exp_ts
-        )
+    entity_payload = _normalize_entity(_rec_get(records[0], "entity"))
+    if not entity_payload:
+        return False
 
-        if doc_node and PROMOTE_DOCUMENT_NODES:
-            _merge_document(short_sess, doc_node, exp_ts)
-            _merge_mentions(
-                short_sess,
-                promoted_uuid,
-                "Document",
-                "doc_uuid",
-                _node_get(doc_node, "doc_uuid"),
-                exp_ts,
-            )
+    documents: Dict[str, Dict[str, Any]] = {}
+    paragraphs: Dict[str, Dict[str, Any]] = {}
 
-        for p in para_nodes:
-            _merge_paragraph(short_sess, p, exp_ts)
-            _merge_part_of(
-                short_sess,
-                _node_get(p, "para_uuid"),
-                _node_get(p, "doc_uuid"),
-            )
-            _merge_mentions(
-                short_sess,
-                promoted_uuid,
-                "Paragraph",
-                "para_uuid",
-                _node_get(p, "para_uuid"),
-                exp_ts,
-            )
+    for rec in records:
+        doc_payload = _normalize_document(_rec_get(rec, "doc"))
+        if doc_payload:
+            documents[doc_payload["doc_uuid"]] = doc_payload
 
+        for para in _normalize_paragraphs(_rec_get(rec, "paras", [])):
+            key = para["para_uuid"]
+            if key not in paragraphs:
+                paragraphs[key] = para
+
+    _write_promotion_to_cache(
+        short_sess,
+        entity_payload,
+        list(documents.values()),
+        list(paragraphs.values()),
+        exp_ts,
+    )
+    return True
 
 def _promote_entities(entity_pairs: List[Tuple[str, str]], ttl_ms: int | None) -> int:
     if not entity_pairs:
@@ -374,12 +393,16 @@ def _promote_entities(entity_pairs: List[Tuple[str, str]], ttl_ms: int | None) -
     now_ms = int(time.time() * 1000)
     exp_ts = _calculate_expiration(now_ms, ttl_ms)
 
+    promoted = 0
     with _long_driver().session() as long_sess, _short_driver().session() as short_sess:
         for name, label in deduped:
-            _promote_entity(name, label, long_sess, short_sess, now_ms, exp_ts)
-
-    return len(deduped)
-
+            try:
+                if _promote_entity(name, label, long_sess, short_sess, now_ms, exp_ts):
+                    promoted += 1
+            except Neo4jError as exc:
+                print(f"[neo4j error promoting ({name}, {label})] {exc}")
+                raise
+    return promoted
 
 @app.route("/ner", methods=["POST"])
 def ner():
@@ -449,7 +472,7 @@ def ner():
             status_code = 500
             promotion_info["error"] = "neo4j_error"
             promotion_info["detail"] = str(exc)
-        except Exception as exc:  # pragma: no cover - unexpected
+        except Exception as exc:  # pragma: no cover
             status_code = 500
             promotion_info["error"] = type(exc).__name__
             promotion_info["detail"] = str(exc)
@@ -458,10 +481,7 @@ def ner():
         "text": text,
         "model": SPACY_MODEL,
         "entities": normalized_entities,
-        "entity_pairs": [
-            {"name": name, "label": label}
-            for name, label in entity_pairs
-        ],
+        "entity_pairs": [{"name": name, "label": label} for name, label in entity_pairs],
         "promotion": promotion_info,
         "request_id": request_id,
     }
