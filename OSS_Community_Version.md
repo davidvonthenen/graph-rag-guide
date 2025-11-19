@@ -94,6 +94,7 @@ Queries rarely roam the entire knowledge graph. Most conversations cling to a ha
 
 1. **Detect entities in the user's question.**
  `cache_cypher_query.py` sends each prompt to the standalone `ner_service.py`. spaCy runs inside that service, returning the `(name, label)` pairs plus metadata about the promotion.
+ The same service owns the subsequent copy step, so clients simply make a single HTTP call and let the API orchestrate cache writes.
 
 2. **Fetch the full context from long-term memory.**
  Inside the service, the constant `PROMOTION_QUERY` retrieves the entity, its parent document, and every paragraph that references it in a single round-trip to the long-term store.
@@ -105,7 +106,7 @@ Queries rarely roam the entire knowledge graph. Most conversations cling to a ha
  Flip `PROMOTE_DOCUMENT_NODES=0` if you only need paragraphs; leave it on to keep the top-level document for full-text answers.
 
 5. **Serve the user from the cache first.**
- After promotion, subsequent queries pull paragraphs straight from short-term memory via `FETCH_PARAS_QUERY`, ordered by "how many entities match" and paragraph index.
+ After promotion, subsequent queries pull paragraphs straight from short-term memory via `FETCH_PARAS_QUERY`, and an external BM25 ranker re-orders the paragraphs so the LLM sees the most textually relevant snippets ahead of the remaining matches.
 
 ### Key design decisions
 
