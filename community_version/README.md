@@ -152,6 +152,9 @@ Environment variables such as `LONG_NEO4J_URI`, `SHORT_NEO4J_URI`,
 `PROMOTION_TTL_MS`, and `PROMOTE_DOCUMENT_NODES` are read by the service. They
 control which databases it talks to, how long promoted relationships stay
 visible, and whether full documents accompany each paragraph in the cache.
+Because the promotion runs entirely inside this API, client scripts only need
+to send a single HTTP request per query and let the service enforce TTLs and
+handle retries/error logging for cache writes.
 
 ### Set Up the Local LLM (using llama.cpp)
 
@@ -194,7 +197,7 @@ In this scenario, we will ingest data into the long-term graph and then execute 
    **WARNING:** This will erase any existing nodes and edges in your Neo4j databases (both long-term and short-term) and then reload the BBC dataset afresh. The ingest process will parse the documents, split them into paragraphs, perform NER to extract entities, and merge everything into the **long-term** Neo4j instance. Each relationship is annotated with metadata, including its source document, ingestion timestamp, and a schema version tag for governance purposes. (In an enterprise setting, the ingest script wraps the entire batch in a single transaction and tags it with a batch ID for easier rollback, ensuring an authoritative, idempotent load of knowledge.)
 
 2. **Perform a Simple Query**: Run `python cache_cypher_query.py`
- This script poses a sample question to the system. On the first run, the query will not find any relevant data in the short-term cache (a *cache miss*). The script sends the question to the shared `ner_service.py`, which both extracts entities and copies the long-term subgraph into the short-term database. Every relationship written by the service receives an `expiration` timestamp (driven by `PROMOTION_TTL_MS`) so cached facts naturally age out. Once the service finishes the promotion call, the relevant data resides in the high-speed cache and the question is answered using only the cached subset of the graph, dramatically improving response time.
+ This script poses a sample question to the system. On the first run, the query will not find any relevant data in the short-term cache (a *cache miss*). The script sends the question to the shared `ner_service.py`, which both extracts entities and copies the long-term subgraph into the short-term database. Every relationship written by the service receives an `expiration` timestamp (driven by `PROMOTION_TTL_MS`) so cached facts naturally age out. Once the service finishes the promotion call, the relevant data resides in the high-speed cache and the question is answered using only the cached subset of the graph, dramatically improving response time. Before handing the context to the LLM, the script now pipes the retrieved paragraphs through a BM25 ranker so the most textually relevant snippets are surfaced first.
 
 3. **Clean Up Short-Term Memory/Cache**: Run `python helper/wipe_short_memory.py`
  This is a maintenance step for the demo, which clears the short-term Neo4j instance of all cached data. In a real deployment, cached entries would naturally expire and be evicted. Each cached relationship has an `expiration` property set (e.g., 1 hour), and a background job or scheduled process can periodically remove those expired edges (while leaving the nodes for audit purposes). For now, we manually wipe the short-term database to simulate that the cache has been cleared of stale data.

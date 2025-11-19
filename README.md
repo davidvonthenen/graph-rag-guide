@@ -22,6 +22,11 @@ Key objectives include:
 - Demonstrate how reinforcement‑learning signals can promote proven facts from cache to durable storage.
 - Show upgrade paths... from a minimal Python/RAM‑disk demo to an enterprise pipeline with exactly‑once Kafka connectors and enterprise storage.
 
+### Latest implementation highlights
+
+- **Cache promotion moves into the shared NER service.** The community workflows now route every query through an external `ner_service.py` process that performs spaCy entity extraction *and* copies the relevant long‑term subgraph into the short‑term cache before a response is generated. Clients no longer maintain separate promotion code; the service enforces TTLs, document inclusion, and error handling in one place.
+- **External BM25 paragraph re‑ranking.** Retrieved paragraphs from the cache are now re‑ordered with a BM25 ranker before the context is handed to the LLM. This keeps entity‑based recall while adding lexical scoring so the model receives the most relevant snippets first.
+
 ## Benefits Over Vector-Based RAG
 
 Adopting graph-based RAG addresses several key limitations of traditional RAG Agents:
