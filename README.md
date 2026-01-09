@@ -5,7 +5,7 @@ Welcome to the **Graph RAG Guide**... a dual‑memory, knowledge‑graph approac
 - **Community / Open‑Source Version** - a self‑contained demo you can run on a laptop.
 - **Enterprise Version** - a production‑grade variant that layers in Kafka CDC pipelines, NetApp FlexCache, SnapMirror, and other operational muscle.
 
-![Graph RAG with Reinforcement Learning](./images/reinforcement_learning.png)
+![Graph RAG with Reinforcement Learning](./images/rag-graph.png)
 
 By storing knowledge as **nodes & relationships** instead of opaque vectors, the agent gains traceability, reduces hallucinations, and meets demanding audit requirements.
 
